@@ -292,6 +292,58 @@ def test_summarize_report_handles_empty_report(backend_pkg):
     assert summary['checks'] == []
     assert summary['checks_with_hits'] == 0
 
+# --------------------------------------------------------------------------- 噪声项与分级
+
+def test_noisy_checks_are_supported_and_explained(backend_pkg):
+    """噪声项是"正确但对 MyBooks 库必然大范围命中"的检查：仍可用，但必须带原因。"""
+    driver = submodule('driver')
+    checks = dict((c['key'], c) for c in driver.describe_checks())
+    noisy = sorted(k for k, c in checks.items() if c['noisy'])
+    assert len(noisy) == 10
+    for key in noisy:
+        assert checks[key]['supported'], key
+        assert checks[key]['noisy_reason'], key
+    # 用户报过"所有书都报错"的那两个：calibre 痕迹类必须在噪声集合里
+    assert 'check_epub_no_svg_cover' in noisy
+    assert 'check_epub_not_converted' in noisy
+    assert 'check_authors_case' in noisy
+    assert driver.is_noisy('check_authors_case') is True
+    assert driver.is_noisy('check_epub_corrupt_zip') is False
+
+
+def test_error_severity_means_structural_breakage(backend_pkg):
+    """error 只留给"书本身可能坏了"的结构性问题；反面检查与取向类一律 info。"""
+    driver = submodule('driver')
+    errors = set(c['key'] for c in driver.describe_checks()
+                 if c['supported'] and driver.severity_for(c['key']) == 'error')
+    assert errors == {
+        'check_epub_corrupt_zip', 'check_epub_no_container', 'check_epub_files_missing',
+        'check_epub_broken_images', 'check_epub_toc_broken', 'check_epub_guide_broken',
+        'check_epub_drm',
+    }
+    # 这两个是 svg_cover / converted（info）的反面，曾被落到 EPUB 类默认的 error
+    assert driver.severity_for('check_epub_no_svg_cover') == 'info'
+    assert driver.severity_for('check_epub_not_converted') == 'info'
+
+
+def test_recommended_preset_scope(backend_pkg):
+    """推荐预设 = 支持的检查项 - 噪声项；前端默认勾的就是它。"""
+    driver = submodule('driver')
+    checks = driver.describe_checks()
+    supported = [c for c in checks if c['supported']]
+    recommended = [c for c in supported if not c['noisy']]
+    assert len(supported) == 75
+    assert len(recommended) == 65
+
+
+def test_summary_marks_noisy_rows(backend_pkg):
+    driver = submodule('driver')
+    report = {'books': [{'book_id': 1, 'title': 'A', 'issues': [
+        {'check': 'check_epub_no_svg_cover', 'severity': 'info', 'detail': []}]}]}
+    summary = driver.summarize_report(report)
+    assert summary['checks'][0]['noisy'] is True
+
+
 def test_registry_shape(backend_pkg):
     driver = submodule('driver')
     checks = driver.describe_checks()

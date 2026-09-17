@@ -165,11 +165,33 @@
     return (translated && translated !== check.key) ? translated : (check.name || check.key);
   }
 
-  function checkLabelText(key) {
+  // 噪声项（后端标 noisy）为什么"命中的书特别多"：优先用本工具的翻译，回退后端的英文说明。
+  // 传入的既可能是注册表条目（key）也可能是报告里的问题条目（check）。
+  function noisyReason(item) {
+    if (!item || !item.noisy) return '';
+    var key = item.key || item.check;
+    if (!key) return item.noisy_reason || '';
+    var translated = t('noisy.' + key);
+    return (translated && translated !== 'noisy.' + key)
+      ? translated : (item.noisy_reason || '');
+  }
+
+  function noisyBadge(reason) {
+    var badge = el('span', 'qc-sev noisy-tag', t('checks.noisyTag'));
+    badge.title = reason;
+    return badge;
+  }
+
+  function findCheck(key) {
     for (var i = 0; i < state.checks.length; i++) {
-      if (state.checks[i].key === key) return checkName(state.checks[i]);
+      if (state.checks[i].key === key) return state.checks[i];
     }
-    return key;
+    return null;
+  }
+
+  function checkLabelText(key) {
+    var check = findCheck(key);
+    return check ? checkName(check) : key;
   }
 
   function matchesFilter(check) {
@@ -257,6 +279,7 @@
       row.appendChild(tag);
     } else {
       row.appendChild(el('span', 'qc-sev ' + check.severity, t('severity.' + check.severity)));
+      if (check.noisy) row.appendChild(noisyBadge(noisyReason(check)));
     }
     return row;
   }
@@ -295,6 +318,13 @@
   function keysForPreset(name) {
     if (name === 'none') return [];
     if (name === 'all') return supportedKeys();
+    // 推荐 = 全部支持的检查项减去"对 MyBooks 库必然大范围命中"的那些（后端标 noisy），
+    // 因为把噪声一起跑出来会把真正的问题淹掉。噪声项仍可在清单里单独勾选。
+    if (name === 'recommended') {
+      return state.checks.filter(function (c) {
+        return c.supported && !c.noisy;
+      }).map(function (c) { return c.key; });
+    }
     if (name === 'structure') {
       return state.checks.filter(function (c) {
         return c.supported && (c.cat === 'epub' || c.cat === 'mobi') && STYLE_CHECKS.indexOf(c.key) === -1;
@@ -865,6 +895,7 @@
         var line = el('div', 'qc-issue');
         line.appendChild(el('span', 'qc-sev ' + issue.severity, t('severity.' + issue.severity)));
         line.appendChild(el('code', null, checkLabelText(issue.check)));
+        if (issue.noisy) line.appendChild(noisyBadge(noisyReason(issue)));
         tdIssues.appendChild(line);
       });
 
@@ -880,6 +911,7 @@
       detailTd.colSpan = 3;
       (book.issues || []).forEach(function (issue) {
         detailTd.appendChild(el('div', null, checkLabelText(issue.check)));
+        if (issue.noisy) detailTd.appendChild(el('div', 'qc-note', noisyReason(issue)));
         if (issue.detail && issue.detail.length) {
           var ul = el('ul', 'qc-detail');
           issue.detail.forEach(function (line) { ul.appendChild(el('li', null, line)); });
@@ -942,7 +974,9 @@
     }
     rows.forEach(function (row) {
       var tr = el('tr');
-      tr.appendChild(tdWithLabel(checkLabelText(row.check), t('report.colCheck')));
+      var nameCell = tdWithLabel(checkLabelText(row.check), t('report.colCheck'));
+      if (row.noisy) nameCell.appendChild(noisyBadge(noisyReason(row)));
+      tr.appendChild(nameCell);
       var sev = el('td');
       sev.setAttribute('data-label', t('report.colSeverity'));
       sev.appendChild(el('span', 'qc-sev ' + row.severity, t('severity.' + row.severity)));
@@ -989,7 +1023,9 @@
       var head = el('div');
       head.appendChild(el('span', 'qc-sev ' + issue.severity, t('severity.' + issue.severity)));
       head.appendChild(el('code', null, checkLabelText(issue.check)));
+      if (issue.noisy) head.appendChild(noisyBadge(noisyReason(issue)));
       block.appendChild(head);
+      if (issue.noisy) block.appendChild(el('div', 'qc-note', noisyReason(issue)));
       if (issue.detail && issue.detail.length) {
         var ul = el('ul', 'qc-detail');
         issue.detail.forEach(function (line) { ul.appendChild(el('li', null, line)); });
@@ -1181,7 +1217,8 @@
   function loadChecks() {
     return api('checks').then(function (rsp) {
       state.checks = (rsp.data && rsp.data.checks) || [];
-      applyPreset('all');
+      // 默认勾"推荐"而不是"全选"：全选会把必然大范围命中的噪声项一起跑，报告淹没在噪声里。
+      applyPreset('recommended');
       render(['checks', 'presets']);
     });
   }

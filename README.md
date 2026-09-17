@@ -9,7 +9,7 @@
 ## 安装
 
 1. 系统设置 → 高级配置项，打开 `ENABLE_TOOLBOX_DEV_MODE`。
-2. `/admin/toolbox` 上传 `dist/quality_check-1.1.0.zip`。
+2. `/admin/toolbox` 上传 `dist/quality_check-1.2.0.zip`。
 3. **重启服务**（外置工具的 import 与路由挂载只在进程启动时跑一次；禁用/启用才是即时生效）。
 4. 工具页 `/toolbox/quality_check`。
 
@@ -20,10 +20,14 @@
 范围四选一：**全库** / **选书**（搜索勾选，可多选）/ **查询串**（Calibre 语法，如 `formats:epub and tags:小说`）。
 EPUB 结构类检查只会跑有 EPUB 格式的书，MOBI 类同理。
 
-检查项按组勾选（EPUB / MOBI / 封面 / 元数据 / 缺失项），带 5 个预设：全选、只看结构、只看元数据、只看排版杂项、清空。
+检查项按组勾选（EPUB / MOBI / 封面 / 元数据 / 缺失项），带 6 个预设：**推荐（默认）**、全选、只看结构、只看元数据、只看排版杂项、清空。
 清单顶部有**过滤框**（按名称/键筛选，77 项里找一项不用再翻），分组标题可折叠（折叠状态记在本机），每组标题显示"已选 n/总数"。
 不满足内置预设时可以**保存自己的预设**：勾好清单 → 填个名字 → 「保存当前选择」，之后从下拉里一键套用（存在浏览器本地，不上传）。
 封面那一组可以选**判定方式**：尺寸（宽×高）/ 文件大小（KB）/ 宽高比（比例±容差）/ 缺封面，再配一个**条件**（小于 / 大于阈值）。判定方式没有选中时（复选框关掉）封面检查整个不跑——它不会"用默认值偷偷跑一遍"。
+
+**默认预设是"推荐"而不是"全选"**：有 10 项检查本身没错、但对一个直接入库、没经 calibre 处理过的中文书库会命中几乎全部书（"有没有 calibre 插入的 SVG 封面"、"哪些书没被 calibre 转换过"、"作者名里有没有逗号"这类），一起跑会把真正的问题淹掉。这些项在清单里带虚线**「噪声」徽章**（悬停给出原因）、默认不勾，需要时可以单独勾上；报告里若出现，明细旁边也会写明"为什么这项会命中很多书"。
+
+严重度的含义：**错误**只给结构性损坏（zip 坏、缺 container.xml、清单里的文件缺失、目录/guide 链接断裂、图片链接断裂、DRM），**警告**是可能需要处理的数据问题（缺元数据、ISBN 无效、重复 ISBN/丛书、异常排版痕迹等），**提示**是信息与取向类（字体、边距、护封、取向对偶的检查）。
 点「开始体检」后任务进宿主后台队列，页面每 2 秒轮询进度（当前检查项、第几本、已用时长与粗估剩余；当前书可直接点开）；也可在宿主后台任务面板看到它。刷新页面会从 `/progress` / `/report` 把上一次任务的状态和报告捡回来。
 
 报告有两个视角：
@@ -105,7 +109,7 @@ frontend/
 python -m pytest tests/                   # 回归测试（不依赖 MyBooks/calibre，秒级）
 python scripts/smoke_offline.py            # 对真实 calibre 书库离线跑全部 75 项检查（不需要 MyBooks/calibre）
 python scripts/smoke_offline.py --verbose --checks=check_epub_corrupt_zip
-python scripts/build.py                    # → dist/quality_check-1.1.0.zip（含产物形状校验）
+python scripts/build.py                    # → dist/quality_check-1.2.0.zip（含产物形状校验）
 python scripts/make_icon.py                # 重绘 icon.png
 python scripts/port_shim.py                # 重新生成 qc/shim/** 的规范内容（不碰 dialogs.py）
 ```

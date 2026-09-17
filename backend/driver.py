@@ -44,7 +44,7 @@ _SEVERITY_OVERRIDES = {
     'check_epub_corrupt_zip': 'error',
     'check_epub_no_container': 'error',
     'check_epub_namespaces': 'warn',
-    'check_epub_non_dc_meta': 'warn',
+    'check_epub_non_dc_meta': 'info',
     'check_epub_files_missing': 'error',
     'check_epub_guide_broken': 'error',
     'check_epub_toc_broken': 'error',
@@ -73,6 +73,9 @@ _SEVERITY_OVERRIDES = {
     'check_epub_smarten_punc': 'info',
     'check_epub_converted': 'info',
     'check_epub_svg_cover': 'info',
+    'check_epub_no_svg_cover': 'info',
+    'check_epub_converted': 'info',
+    'check_epub_not_converted': 'info',
     'check_epub_repl_cover': 'info',
     'check_epub_no_repl_cover': 'info',
     'check_epub_jacket': 'info',
@@ -85,6 +88,8 @@ _SEVERITY_OVERRIDES = {
     'check_authors_case': 'info',
     'check_authors_initials': 'info',
     'check_authors_non_ascii': 'info',
+    'check_authors_commas': 'info',
+    'check_authors_no_commas': 'info',
     'check_titles_series': 'info',
     'check_title_case': 'info',
     'check_html_comments': 'info',
@@ -104,6 +109,54 @@ UNSUPPORTED = {
     'search_epub': 'the port has no regular-expression "Search ePubs" dialog',
     'check_title_case': 'needs calibre\'s titlecase word lists; too noisy for a report',
 }
+
+# Checks that are *correct* but match most of a MyBooks library, so a report that runs
+# them by default reads as "everything is broken" and hides the real findings. They stay
+# available (each one answers a real question) but are left out of the 推荐 preset and
+# marked in the checklist, and the report explains what a hit means:
+#
+# * "has calibre NOT done X" -- a library whose books were imported directly answers
+#   "no" for every book;
+# * calibre's Western author conventions -- a CJK name has no comma, is non-ascii, and
+#   compares equal to its own upper()/lower(), so all three match every Chinese author;
+# * one half of a preference pair -- whichever side you pick, the other one matches;
+# * checks that need a preference the host does not expose.
+NOISY_REASONS = {
+    'check_epub_no_svg_cover':
+        'asks which books calibre has not inserted an SVG cover into: books imported '
+        'directly into MyBooks all match',
+    'check_epub_not_converted':
+        'asks which books calibre has not converted: books imported directly into '
+        'MyBooks all match',
+    'check_epub_no_jacket':
+        'asks which books have no calibre jacket: a book never processed by calibre '
+        'has none',
+    'check_epub_repl_cover':
+        'asks which covers can be replaced by calibre: most books qualify, it is a '
+        'capability query rather than a fault',
+    'check_authors_no_commas':
+        "calibre's author convention is \"Family, Given\"; no CJK author name has a "
+        'comma, so every book matches',
+    'check_authors_case':
+        'flags names equal to their own upper()/lower(); a CJK name always is, so every '
+        'book matches',
+    'check_authors_non_ascii':
+        'flags names that transliterate to ASCII; every CJK author name does',
+    'check_no_html_comments':
+        'the opposite of check_html_comments: one side of that pair always matches most '
+        'of the library',
+    'check_epub_css_margins':
+        'any body/@page margin counts as "conflicts with calibre preferences", and the '
+        'host has no calibre margin preference to compare against',
+    'check_epub_non_dc_meta':
+        'any non-dc: metadata element counts (EPUB3 refines/accessibility, maker <meta>); '
+        'structural information rather than a fault',
+}
+
+
+def is_noisy(check_key):
+    return check_key in NOISY_REASONS
+
 
 
 def severity_for(check_key):
@@ -128,6 +181,8 @@ def describe_checks():
             'severity': severity_for(key),
             'supported': key not in UNSUPPORTED,
             'unsupported_reason': UNSUPPORTED.get(key, ''),
+            'noisy': key in NOISY_REASONS,
+            'noisy_reason': NOISY_REASONS.get(key, ''),
         })
     return out
 
@@ -357,6 +412,7 @@ def summarize_report(report, sample=5):
                     'name': issue.get('name')
                     or (menus.PLUGIN_MENUS.get(key) or {}).get('name', key),
                     'severity': issue.get('severity') or severity_for(key),
+                    'noisy': key in NOISY_REASONS,
                     'books': 0,
                     'detail_lines': 0,
                     'sample': [],
@@ -403,6 +459,8 @@ def _build_report(db, book_ids, check_keys, findings, matched_by_check, notes,
                 'check': check_key,
                 'name': (menus.PLUGIN_MENUS.get(check_key) or {}).get('name', check_key),
                 'severity': severity,
+                'noisy': check_key in NOISY_REASONS,
+                'noisy_reason': NOISY_REASONS.get(check_key, ''),
                 'detail': detail,
             })
         issues.sort(key=lambda i: ({'error': 0, 'warn': 1, 'info': 2}.get(i['severity'], 3), i['check']))

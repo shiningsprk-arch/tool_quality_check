@@ -81,6 +81,9 @@ button.qc-btn-sm { padding: 3px 8px; font-size: 12px; }
 .qc-sev.info { background: var(--qc-info-bg); color: var(--mb-color-info); }
 .qc-sev.unsupported-tag { background: transparent; color: var(--mb-color-text-secondary);
                           border: 1px solid var(--mb-color-border); }
+/* 噪声项：正确但对 MyBooks 库必然大范围命中，默认预设里不勾，命中了也用虚线标出来 */
+.qc-sev.noisy-tag { background: transparent; color: var(--mb-color-text-secondary);
+                    border: 1px dashed var(--mb-color-border); cursor: help; }
 
 /* 进度 */
 .qc-bar { height: 8px; background: var(--mb-color-border); border-radius: 4px; overflow: hidden; }
