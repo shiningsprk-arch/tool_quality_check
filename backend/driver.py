@@ -9,6 +9,8 @@ dialog. The port keeps the checks exactly as they are and changes only the two e
 * results: marks and log lines are collected per book instead of being shown in the GUI.
 """
 
+import html
+import re
 from collections import OrderedDict, defaultdict
 
 from .qc import menus
@@ -329,6 +331,10 @@ def run_checks(api, book_ids, check_keys, options, progress_cb, cancel_event, co
 
         check = check_class(gui)
         check.menu_key = check_key
+        # 检查项把日志写进 BaseCheck.log（上游用它弹结果对话框、判 plain_text），而逐书明细
+        # 的归属与"检查项级说明"都在 gui.current_log 上做——必须让两者是**同一个对象**，
+        # 否则报告里每条问题都只剩"该检查项上游不输出逐条明细"（曾经就是这样）。
+        check.log = gui.current_log
         check.set_search_scope('ids', scoped)
         try:
             check.perform_check(check_key)
@@ -344,12 +350,12 @@ def run_checks(api, book_ids, check_keys, options, progress_cb, cancel_event, co
                 notes[check_key] = [problem]
             if not matched:
                 pass
-        tail = list(log.plain_text[gui.log_tail_start:]) if gui.log_tail_start else []
+        tail = _clean_lines(log.plain_text[gui.log_tail_start:]) if gui.log_tail_start else []
         if tail:
             notes.setdefault(check_key, []).extend(tail)
 
         for book_id in matched:
-            detail = list(gui.per_book_log.get(book_id) or [])
+            detail = _clean_lines(gui.per_book_log.get(book_id) or [])
             findings[book_id][check_key].extend(detail)
         # Books the check flagged but never logged a line for still need an entry.
         for book_id in matched:
@@ -389,6 +395,26 @@ def filter_report_books(books, severity='', check_key=''):
         out.append(dict(book, issues=issues))
         issues_total += len(issues)
     return out, issues_total
+
+
+# --- log lines --------------------------------------------------------------
+
+_TAG_RE = re.compile(r'</?[a-zA-Z][^>]*>')
+
+
+def clean_log_line(line):
+    """Turn one upstream log line into plain report text (pure).
+
+    Upstream writes its log for a rich-text dialog: ``<b>``/``<span>`` markup, ``&amp;``
+    entities, and tab indentation for nesting. The report shows text, so strip those
+    rather than printing raw markup at the user.
+    """
+    text = _TAG_RE.sub('', str(line if line is not None else ''))
+    return html.unescape(text).strip()
+
+
+def _clean_lines(lines):
+    return [cleaned for cleaned in (clean_log_line(line) for line in lines) if cleaned]
 
 
 # --- report views -----------------------------------------------------------

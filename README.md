@@ -9,7 +9,7 @@
 ## 安装
 
 1. 系统设置 → 高级配置项，打开 `ENABLE_TOOLBOX_DEV_MODE`。
-2. `/admin/toolbox` 上传 `dist/quality_check-1.2.0.zip`。
+2. `/admin/toolbox` 上传 `dist/quality_check-1.2.1.zip`。
 3. **重启服务**（外置工具的 import 与路由挂载只在进程启动时跑一次；禁用/启用才是即时生效）。
 4. 工具页 `/toolbox/quality_check`。
 
@@ -33,6 +33,7 @@ EPUB 结构类检查只会跑有 EPUB 格式的书，MOBI 类同理。
 报告有两个视角：
 
 - **按书**：一行一本书 + 该书的全部问题；点书名弹出**单本聚焦**（一次看完这本书的每条明细），点行本身展开内联明细；可按严重度/检查项筛选、翻页（每页 50/100/200）、导出 CSV、书名可跳宿主书籍详情页。
+  逐条明细只对**上游会记日志**的检查项存在（实测 13 本真书上 28 个命中的检查项里有 7 个有明细，例如"CSS 书级边距冲突"会写出具体命中了哪条 margin 规则、"未登记文件"会列出多余文件名）；其余检查项上游只 `return True/False` 标记命中、不写日志，报告里会如实显示"仅标记命中"。明细里的 HTML 标签、实体和制表缩进会在入库报告前清成纯文本（上游那些字符串是给富文本对话框看的）。
 - **按检查项**：一张"哪个检查项最脏"的表（命中书数、明细条数、前几本），每行有"只看这一项"，点了跳到按书视角并带上该筛选。
 
 窄屏（< 640px）下报告表自动变成卡片式；深色模式跟随宿主主题。键盘：`/` 聚焦检索框，`Esc` 关弹层，报告行 `Enter`/空格展开。
@@ -57,7 +58,7 @@ backend/
 
 两个接缝是这次移植的全部工作量：
 
-1. **`qc/dialogs.py`**：上游用 `QProgressDialog` + QTimer 驱动逐书循环。这里换成一个**同步、可取消、容错**的循环，并顺手把每本书的日志增量归属到那本书——报告里每本书的明细就是这么来的。上游的 `check_all_files()` 因此可以逐字不动。
+1. **`qc/dialogs.py`**：上游用 `QProgressDialog` + QTimer 驱动逐书循环。这里换成一个**同步、可取消、容错**的循环，并顺手把每本书的日志增量归属到那本书——报告里每本书的明细就是这么来的（另一根必须接对的线：检查项写日志用的是自己的 `BaseCheck.log`，所以 `driver` 在跑每个检查项之前会把它指到 `gui.current_log` 上；接错就会像早期那样，每条问题都只剩"该检查项上游不输出逐条明细"）。上游的 `check_all_files()` 因此可以逐字不动。
 2. **`qc/shim/`**：上游会 `import calibre.*` 的一小撮 API（zipfile / logging / chardet / oeb.XPath / parse_html / metadata 工具函数 / Encryption / six / polyglot）。这里逐个补上最小实现；`adapter.py` 再把宿主 CoreAPI 包装成上游期望的 `db` / `gui`。
 
 检查结果如何收集：上游把命中的书用 `set_marked_ids` + `marked:xxx` 搜索呈现给 GUI。这里把 `set_marked_ids` 收进报告；`MissingDataCheck` 那 11 项上游只是设一个 calibre 搜索串让 GUI 过滤，这里优先把该查询串转发给宿主的 `search_ids()`，失败再本地判定。
@@ -109,7 +110,7 @@ frontend/
 python -m pytest tests/                   # 回归测试（不依赖 MyBooks/calibre，秒级）
 python scripts/smoke_offline.py            # 对真实 calibre 书库离线跑全部 75 项检查（不需要 MyBooks/calibre）
 python scripts/smoke_offline.py --verbose --checks=check_epub_corrupt_zip
-python scripts/build.py                    # → dist/quality_check-1.2.0.zip（含产物形状校验）
+python scripts/build.py                    # → dist/quality_check-1.2.1.zip（含产物形状校验）
 python scripts/make_icon.py                # 重绘 icon.png
 python scripts/port_shim.py                # 重新生成 qc/shim/** 的规范内容（不碰 dialogs.py）
 ```

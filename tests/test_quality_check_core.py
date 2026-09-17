@@ -48,9 +48,10 @@ def submodule(name):
 class FakeCalibre(object):
     """只提供 adapter/driver 真正用到的那几个 CoreAPI.calibre 方法。"""
 
-    def __init__(self, records, covers=None):
+    def __init__(self, records, covers=None, paths=None):
         self._records = records
         self._covers = covers or {}
+        self._paths = paths or {}
         self.searched = []
 
     def all_book_ids(self):
@@ -67,12 +68,12 @@ class FakeCalibre(object):
         return []
 
     def format_abspath(self, book_id, fmt):
-        return None
+        return self._paths.get((book_id, str(fmt).upper()))
 
 
 class FakeApi(object):
-    def __init__(self, records, covers=None):
-        self.calibre = FakeCalibre(records, covers)
+    def __init__(self, records, covers=None, paths=None):
+        self.calibre = FakeCalibre(records, covers, paths)
 
 
 @pytest.fixture
@@ -291,6 +292,100 @@ def test_summarize_report_handles_empty_report(backend_pkg):
     summary = driver.summarize_report({'books': []})
     assert summary['checks'] == []
     assert summary['checks_with_hits'] == 0
+
+# --------------------------------------------------------------------------- 逐书明细
+
+CONTAINER_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+"""
+
+OPF_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:title>Test Book</dc:title>
+    <dc:language>zh</dc:language>
+    <dc:identifier id="bookid">urn:uuid:12345678-1234-1234-1234-123456789012</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="c1"/>
+  </spine>
+</package>
+"""
+
+NCX_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head><meta name="dtb:uid" content="urn:uuid:12345678-1234-1234-1234-123456789012"/></head>
+  <docTitle><text>Test Book</text></docTitle>
+  <navMap>
+    <navPoint id="n1" playOrder="1">
+      <navLabel><text>Ch1</text></navLabel>
+      <content src="c1.xhtml"/>
+    </navPoint>
+  </navMap>
+</ncx>
+"""
+
+XHTML = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Ch1</title></head>
+<body><p>hello</p></body></html>
+"""
+
+
+def write_minimal_epub(path, extra_files=()):
+    """写一本结构完整的最小 EPUB（可选塞几个没登记进 manifest 的文件）。"""
+    import zipfile
+    with zipfile.ZipFile(str(path), 'w') as zf:
+        zf.writestr('mimetype', 'application/epub+zip')
+        zf.writestr('META-INF/container.xml', CONTAINER_XML)
+        zf.writestr('OEBPS/content.opf', OPF_XML)
+        zf.writestr('OEBPS/toc.ncx', NCX_XML)
+        zf.writestr('OEBPS/c1.xhtml', XHTML)
+        for name in extra_files:
+            zf.writestr(name, 'junk')
+
+
+def test_report_collects_per_book_log_lines(backend_pkg, tmp_path):
+    """回归：检查项写进 BaseCheck.log 的日志必须进报告。
+
+    曾经 driver 收集的是另一个 gui.current_log 对象，于是 28 个命中的检查项一条逐书明细都
+    收不到，报告里每条问题都显示"该检查项上游不输出逐条明细"。
+    """
+    import threading
+    driver = submodule('driver')
+    epub = tmp_path / 'book.epub'
+    write_minimal_epub(epub, extra_files=['OEBPS/stray.txt'])
+
+    records = {1: {'id': 1, 'title': 'T', 'authors': ['A'],
+                   'available_formats': ['EPUB'], 'sort': 't'}}
+    api = FakeApi(records, paths={(1, 'EPUB'): str(epub)})
+    report = driver.run_checks(
+        api=api, book_ids=[1], check_keys=['check_epub_unman_files'], options={},
+        progress_cb=None, cancel_event=threading.Event(),
+        cover_root=str(tmp_path / 'covers'))
+
+    assert report['books'], '这一项应当命中那本带多余文件的 EPUB'
+    issue = report['books'][0]['issues'][0]
+    assert issue['check'] == 'check_epub_unman_files'
+    assert issue['detail'], '逐书明细为空 —— check.log 又没有接到 gui.current_log 上'
+    assert any('stray' in line for line in issue['detail']), issue['detail']
+
+
+def test_clean_log_line_strips_dialog_markup(backend_pkg):
+    """上游日志是给富文本对话框看的，进报告前要把标签/实体/缩进清掉。"""
+    driver = submodule('driver')
+    assert driver.clean_log_line('		<b>Margins</b> are &amp; defined') == 'Margins are & defined'
+    assert driver.clean_log_line('First match in book: <b>盗墓笔记</b>') == 'First match in book: 盗墓笔记'
+    assert driver.clean_log_line(None) == ''
+    assert driver.clean_log_line('   ') == ''
+
 
 # --------------------------------------------------------------------------- 噪声项与分级
 
