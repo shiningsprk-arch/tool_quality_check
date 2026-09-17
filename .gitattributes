@@ -1,0 +1,8 @@
+# 源码统一按 LF 存放：scripts/build.py 的产物字节可复现，跨平台 clone 出来的包一致。
+* text=auto eol=lf
+
+# 二进制，别做行尾转换
+*.png binary
+*.jpg binary
+*.woff2 binary
+*.zip binary

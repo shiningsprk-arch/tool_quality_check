@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="app.title">质量体检</title>
+  <link rel="stylesheet" href="lib/theme.css">
+  <link rel="stylesheet" href="lib/quality_check.css">
+</head>
+<body>
+<div class="qc-wrap">
+  <div class="qc-head">
+    <h1 data-i18n="app.title">质量体检</h1>
+    <span class="qc-sub" data-i18n="app.subtitle"></span>
+  </div>
+
+  <!-- 范围 -->
+  <section class="qc-card">
+    <h2 data-i18n="scope.title"></h2>
+    <div class="qc-row">
+      <div class="qc-seg" id="scope-seg">
+        <button type="button" data-scope="all" aria-pressed="true" data-i18n="scope.all"></button>
+        <button type="button" data-scope="picked" aria-pressed="false" data-i18n="scope.picked"></button>
+        <button type="button" data-scope="query" aria-pressed="false" data-i18n="scope.query"></button>
+      </div>
+      <span class="qc-sub" id="scope-hint"></span>
+    </div>
+
+    <div id="picked-panel" hidden>
+      <div class="qc-row" style="margin-top:10px">
+        <input type="search" id="book-search" size="34" data-i18n-attr="placeholder:scope.searchPlaceholder">
+        <button type="button" class="qc-btn" id="book-search-btn" data-i18n="scope.search"></button>
+      </div>
+      <div class="qc-chips" id="picked-chips"></div>
+      <div class="qc-books" id="book-results"></div>
+    </div>
+
+    <div id="query-panel" hidden>
+      <div class="qc-row" style="margin-top:10px">
+        <input type="text" id="query-input" size="52" placeholder="formats:epub and tags:小说">
+        <span class="qc-sub" data-i18n="scope.queryHint"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 检查项 -->
+  <section class="qc-card">
+    <div class="qc-row qc-card-head">
+      <h2 data-i18n="checks.title"></h2>
+      <span class="qc-sub" id="checks-count"></span>
+    </div>
+    <div class="qc-row">
+      <input type="search" id="checks-filter" size="26" data-i18n-attr="placeholder:checks.filter">
+      <button type="button" class="qc-btn" id="checks-toggle-all" data-i18n="checks.collapseAll"></button>
+    </div>
+    <div class="qc-row" style="margin-top:8px">
+      <span class="qc-sub" data-i18n="checks.presets"></span>
+      <button type="button" class="qc-btn" data-preset="all" data-i18n="checks.presetAll"></button>
+      <button type="button" class="qc-btn" data-preset="structure" data-i18n="checks.presetStructure"></button>
+      <button type="button" class="qc-btn" data-preset="metadata" data-i18n="checks.presetMetadata"></button>
+      <button type="button" class="qc-btn" data-preset="style" data-i18n="checks.presetStyle"></button>
+      <button type="button" class="qc-btn" data-preset="none" data-i18n="checks.presetNone"></button>
+    </div>
+    <div class="qc-row" style="margin-top:8px">
+      <select id="preset-select" data-i18n-attr="aria-label:checks.savedPresets">
+        <option value="" data-i18n="checks.savedPresets"></option>
+      </select>
+      <input type="text" id="preset-name" size="14" data-i18n-attr="placeholder:checks.presetName">
+      <button type="button" class="qc-btn" id="preset-save" data-i18n="checks.savePreset"></button>
+      <button type="button" class="qc-btn" id="preset-delete" data-i18n="checks.deletePreset"></button>
+    </div>
+    <div class="qc-groups" id="checks-groups"></div>
+
+    <div class="qc-row" style="margin-top:12px">
+      <label class="qc-sub"><input type="checkbox" id="opt-cover"> <span data-i18n="options.cover"></span></label>
+      <select id="cover-mode" data-i18n-attr="aria-label:options.coverMode">
+        <option value="dimensions" data-i18n="options.coverDimensions"></option>
+        <option value="file_size" data-i18n="options.coverSize"></option>
+        <option value="aspect" data-i18n="options.coverAspect"></option>
+        <option value="no_cover" data-i18n="options.coverMissing"></option>
+      </select>
+      <select id="cover-operator" data-i18n-attr="aria-label:options.coverOperator">
+        <option value="less than" data-i18n="options.opLess"></option>
+        <option value="greater than" data-i18n="options.opGreater"></option>
+      </select>
+      <span class="qc-sub" id="cover-dims-row">
+        <span data-i18n="options.coverMin"></span>
+        <input type="number" id="cover-w" value="600" min="0" style="width:76px">
+        <span>×</span>
+        <input type="number" id="cover-h" value="800" min="0" style="width:76px">
+      </span>
+      <span class="qc-sub" id="cover-file-row" hidden>
+        <span data-i18n="options.coverMinFile"></span>
+        <input type="number" id="cover-kb" value="50" min="0" style="width:76px">
+        <span>KB</span>
+      </span>
+      <span class="qc-sub" id="cover-aspect-row" hidden>
+        <input type="number" id="aspect-x" value="2" min="1" style="width:56px">
+        <span>:</span>
+        <input type="number" id="aspect-y" value="3" min="1" style="width:56px">
+        <span data-i18n="options.coverAspectTolerance"></span>
+        <input type="number" id="aspect-tol" value="10" min="0" max="100" style="width:56px">
+        <span>%</span>
+      </span>
+    </div>
+    <div class="qc-row" style="margin-top:8px">
+      <span class="qc-sub" data-i18n="options.maxTags"></span>
+      <input type="number" id="opt-maxtags" value="5" min="1" max="100" style="width:64px">
+    </div>
+  </section>
+
+  <!-- 运行 -->
+  <section class="qc-card">
+    <div class="qc-row">
+      <button type="button" class="qc-btn primary" id="run-btn" data-i18n="run.start"></button>
+      <button type="button" class="qc-btn" id="cancel-btn" data-i18n="run.cancel" disabled></button>
+      <span class="qc-sub" id="run-status" role="status" aria-live="polite"></span>
+    </div>
+    <div class="qc-bar" style="margin-top:10px" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+      <i id="progress-fill"></i>
+    </div>
+    <div class="qc-row qc-progress-meta">
+      <span class="qc-sub" id="run-check"></span>
+      <span class="qc-sub" id="run-book"></span>
+      <span class="qc-sub" id="run-time"></span>
+    </div>
+  </section>
+
+  <div id="alert" class="qc-alert error" role="alert" hidden></div>
+
+  <!-- 报告 -->
+  <section class="qc-card" id="report-card" hidden>
+    <div class="qc-row qc-card-head">
+      <h2 data-i18n="report.title"></h2>
+      <div class="qc-seg" id="view-seg">
+        <button type="button" data-view="books" aria-pressed="true" data-i18n="report.viewBooks"></button>
+        <button type="button" data-view="checks" aria-pressed="false" data-i18n="report.viewChecks"></button>
+      </div>
+      <span class="qc-sub" id="report-notes"></span>
+    </div>
+    <div class="qc-stats" id="report-stats"></div>
+
+    <div id="books-view">
+      <div class="qc-row">
+        <select id="filter-severity">
+          <option value="" data-i18n="report.allSeverity"></option>
+          <option value="error" data-i18n="severity.error"></option>
+          <option value="warn" data-i18n="severity.warn"></option>
+          <option value="info" data-i18n="severity.info"></option>
+        </select>
+        <select id="filter-check"></select>
+        <span class="qc-sub" data-i18n="report.pageSize"></span>
+        <select id="page-size">
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+        </select>
+        <button type="button" class="qc-btn" id="export-btn" data-i18n="report.export"></button>
+        <span class="qc-sub" id="report-count"></span>
+      </div>
+      <table class="qc-report qc-report-books">
+        <thead>
+          <tr>
+            <th data-i18n="report.colBook"></th>
+            <th data-i18n="report.colFormats"></th>
+            <th data-i18n="report.colIssues"></th>
+          </tr>
+        </thead>
+        <tbody id="report-body"></tbody>
+      </table>
+      <div class="qc-row" style="margin-top:10px">
+        <button type="button" class="qc-btn" id="prev-page" data-i18n="report.prev"></button>
+        <span class="qc-sub" id="page-info"></span>
+        <button type="button" class="qc-btn" id="next-page" data-i18n="report.next"></button>
+      </div>
+    </div>
+
+    <div id="checks-view" hidden>
+      <div class="qc-sub" id="summary-line"></div>
+      <table class="qc-report qc-report-checks">
+        <thead>
+          <tr>
+            <th data-i18n="report.colCheck"></th>
+            <th data-i18n="report.colSeverity"></th>
+            <th data-i18n="report.colBooksHit"></th>
+            <th data-i18n="report.colDetailLines"></th>
+            <th data-i18n="report.colSample"></th>
+          </tr>
+        </thead>
+        <tbody id="checks-body"></tbody>
+      </table>
+    </div>
+
+    <details id="errors-panel" hidden>
+      <summary id="errors-summary"></summary>
+      <ul class="qc-detail" id="errors-list"></ul>
+    </details>
+  </section>
+</div>
+
+<!-- 单本聚焦：一次看完这本书的全部问题 -->
+<div id="focus-overlay" class="qc-overlay" hidden>
+  <div class="qc-modal" role="dialog" aria-modal="true" aria-labelledby="focus-title">
+    <div class="qc-modal-head">
+      <h3 id="focus-title"></h3>
+      <span class="qc-sub" id="focus-count"></span>
+      <a id="focus-open-book" href="#" target="_blank" rel="noopener" data-i18n="report.openBook"></a>
+      <button type="button" class="qc-btn" id="focus-close" data-i18n="report.focusClose"></button>
+    </div>
+    <div class="qc-modal-body" id="focus-body"></div>
+  </div>
+</div>
+
+<script src="/static/toolbox-bridge.js"></script>
+<script src="lib/i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,155 @@
+/**
+ * 质量体检自己的样式：只依赖 lib/theme.css 的 --mb-* 变量（宿主主题切换由它负责）。
+ *
+ * 与脚手架分手的原因：这里的组件（检查项清单、报告表、聚焦弹层）是本工具独有的，
+ * 放在独立文件里比塞回 theme.css 更容易随工具一起演进。
+ *
+ * 严重度配色用成对的变量（--qc-*-bg，浅/深各一套），新增颜色不再需要逐条写
+ * body[data-theme="dark"] 覆写。
+ */
+
+:root {
+  --qc-error-bg: #fde7e7;
+  --qc-warn-bg: #fdf0e2;
+  --qc-info-bg: #e6f2fb;
+}
+
+/* [hidden] 必须压得住组件自己的 display：.qc-overlay 是 flex、移动端的表格行是 block，
+   否则"隐藏"的元素照样显示（聚焦弹层曾经因此一直挂在页面右上角）。 */
+[hidden] { display: none !important; }
+
+body[data-theme="dark"] {
+  --qc-error-bg: #4a1f1f;
+  --qc-warn-bg: #4a3418;
+  --qc-info-bg: #16394a;
+}
+
+.qc-wrap { max-width: 1180px; margin: 0 auto; padding: 16px; }
+
+.qc-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.qc-head h1 { font-size: 20px; margin: 0; }
+.qc-sub { color: var(--mb-color-text-secondary); font-size: 13px; }
+
+.qc-card { border: 1px solid var(--mb-color-border); border-radius: var(--mb-radius);
+           background: var(--mb-color-surface); padding: 12px 14px; margin: 12px 0; }
+.qc-card > h2 { font-size: 15px; margin: 0 0 10px; }
+.qc-card-head { align-items: center; }
+.qc-card-head h2 { margin: 0; }
+
+.qc-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.qc-seg { display: inline-flex; border: 1px solid var(--mb-color-border); border-radius: var(--mb-radius); overflow: hidden; }
+.qc-seg button { border: 0; background: transparent; padding: 6px 14px; cursor: pointer;
+                 color: var(--mb-color-text); font: inherit; }
+.qc-seg button[aria-pressed="true"] { background: var(--mb-color-primary); color: var(--mb-color-primary-contrast); }
+
+input[type=text], input[type=search], input[type=number], select {
+  padding: 6px 8px; border: 1px solid var(--mb-color-border); border-radius: 4px;
+  background: var(--mb-color-bg); color: var(--mb-color-text); font: inherit; }
+
+button.qc-btn { padding: 7px 16px; border: 1px solid var(--mb-color-border); border-radius: 4px;
+                background: var(--mb-color-bg); color: var(--mb-color-text); cursor: pointer; font: inherit; }
+button.qc-btn.primary { background: var(--mb-color-primary); border-color: var(--mb-color-primary);
+                        color: var(--mb-color-primary-contrast); }
+button.qc-btn:disabled { opacity: .5; cursor: not-allowed; }
+button.qc-btn-sm { padding: 3px 8px; font-size: 12px; }
+
+.qc-books { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px;
+            max-height: 280px; overflow: auto; margin-top: 10px; }
+.qc-book { display: flex; gap: 8px; align-items: center; border: 1px solid var(--mb-color-border);
+           border-radius: 4px; padding: 6px; background: var(--mb-color-bg); }
+.qc-book img { width: 34px; height: 48px; object-fit: cover; border-radius: 3px; background: #ddd; }
+.qc-book .t { font-size: 13px; line-height: 1.25; }
+.qc-book .a { font-size: 11px; color: var(--mb-color-text-secondary); }
+
+/* 检查项清单 */
+.qc-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 10px; }
+.qc-group { border: 1px solid var(--mb-color-border); border-radius: 4px; padding: 8px 10px;
+            background: var(--mb-color-bg); align-self: start; }
+.qc-group-head { display: flex; align-items: center; gap: 8px; width: 100%; border: 0;
+                 background: transparent; color: inherit; font: inherit; text-align: left;
+                 padding: 0 0 6px; cursor: pointer; }
+.qc-group-title { font-size: 13px; font-weight: 600; }
+.qc-group-head .qc-sub { margin-left: auto; }
+.qc-caret { font-size: 10px; color: var(--mb-color-text-secondary); }
+.qc-check { display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px; padding: 2px 0; }
+.qc-check input { margin-top: 2px; }
+.qc-check label { cursor: pointer; }
+.qc-check.unsupported { opacity: .45; }
+.qc-sev { font-size: 10px; padding: 1px 5px; border-radius: 8px; margin-left: 4px; white-space: nowrap; }
+.qc-sev.error { background: var(--qc-error-bg); color: var(--mb-color-error); }
+.qc-sev.warn { background: var(--qc-warn-bg); color: var(--mb-color-warning); }
+.qc-sev.info { background: var(--qc-info-bg); color: var(--mb-color-info); }
+.qc-sev.unsupported-tag { background: transparent; color: var(--mb-color-text-secondary);
+                          border: 1px solid var(--mb-color-border); }
+
+/* 进度 */
+.qc-bar { height: 8px; background: var(--mb-color-border); border-radius: 4px; overflow: hidden; }
+.qc-bar > i { display: block; height: 100%; background: var(--mb-color-primary); width: 0; }
+.qc-progress-meta { gap: 16px; min-height: 20px; margin-top: 6px; }
+.qc-progress-meta a { color: var(--mb-color-primary); }
+
+/* 报告 */
+.qc-stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; margin-bottom: 10px; }
+.qc-stats b { font-size: 18px; }
+table.qc-report { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.qc-report th, table.qc-report td { text-align: left; padding: 6px 8px;
+  border-bottom: 1px solid var(--mb-color-border); vertical-align: top; }
+table.qc-report tr.issue-row { cursor: pointer; }
+table.qc-report tr.issue-row:focus { outline: 2px solid var(--mb-color-primary); outline-offset: -2px; }
+table.qc-report tr.detail > td { background: var(--mb-color-surface); }
+.qc-title-btn { border: 0; background: transparent; color: var(--mb-color-primary); cursor: pointer;
+                font: inherit; padding: 0; text-align: left; }
+.qc-title-btn:hover { text-decoration: underline; }
+.qc-open-book { margin-left: 6px; font-size: 12px; color: var(--mb-color-text-secondary); }
+ul.qc-detail { margin: 4px 0; padding-left: 18px; }
+ul.qc-detail li { font-size: 12px; color: var(--mb-color-text-secondary); word-break: break-all; }
+.qc-issue { margin: 4px 0; }
+.qc-issue code { font-size: 11.5px; }
+.qc-empty { color: var(--mb-color-text-secondary); font-size: 13px; }
+.qc-note { font-size: 12px; color: var(--mb-color-text-secondary); }
+.qc-alert { padding: 8px 10px; border-radius: 4px; font-size: 13px; margin: 8px 0; }
+.qc-alert.error { background: var(--qc-error-bg); color: var(--mb-color-error); }
+.qc-alert.info { background: var(--qc-info-bg); color: var(--mb-color-info); }
+.qc-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.qc-chip { font-size: 12px; border: 1px solid var(--mb-color-border); border-radius: 12px;
+           padding: 2px 8px; background: var(--mb-color-bg); }
+.qc-chip button { border: 0; background: transparent; cursor: pointer; color: inherit; }
+
+#errors-panel { margin-top: 12px; font-size: 13px; }
+#errors-panel summary { cursor: pointer; color: var(--mb-color-error); }
+
+/* 单本聚焦弹层 */
+.qc-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .45);
+              display: flex; align-items: flex-start; justify-content: center;
+              padding: 40px 16px; overflow: auto; z-index: 50; }
+.qc-modal { background: var(--mb-color-bg); border: 1px solid var(--mb-color-border);
+            border-radius: var(--mb-radius); max-width: 760px; width: 100%; }
+.qc-modal-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+                 padding: 12px 14px; border-bottom: 1px solid var(--mb-color-border); }
+.qc-modal-head h3 { font-size: 15px; margin: 0; }
+.qc-modal-head .qc-sub { margin-right: auto; }
+.qc-modal-body { padding: 12px 14px; max-height: 62vh; overflow: auto; }
+.qc-focus-issue { margin-bottom: 12px; }
+.qc-focus-issue code { font-size: 12px; }
+
+/* 窄屏：报告表格改卡片式（每行一张卡，表头隐藏，字段名用 data-label 回填） */
+@media (max-width: 640px) {
+  .qc-wrap { padding: 8px; }
+  .qc-stats { gap: 12px; }
+  .qc-groups { grid-template-columns: 1fr; }
+  .qc-report thead { display: none; }
+  .qc-report, .qc-report tbody, .qc-report tr, .qc-report td { display: block; width: 100%; }
+  .qc-report tr.issue-row { border: 1px solid var(--mb-color-border); border-radius: 4px;
+                            margin: 8px 0; padding: 6px 8px; }
+  .qc-report tr.detail { margin: 0 0 8px; }
+  .qc-report tr.detail > td { background: transparent; border: 0; }
+  .qc-report td { border: 0; padding: 2px 0; }
+  .qc-report td[data-label]::before {
+    content: attr(data-label) "：";
+    color: var(--mb-color-text-secondary);
+    font-size: 11px;
+    margin-right: 4px;
+  }
+  .qc-overlay { padding: 10px; }
+  .qc-modal-body { max-height: none; }
+}

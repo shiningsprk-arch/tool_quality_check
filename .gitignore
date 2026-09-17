@@ -1,0 +1,10 @@
+# 开发/运行产物，不进仓库
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 打包产物由 scripts/build.py 生成、经 mybooks.top 分发，仓库里不存
+dist/
+
+# smoke_offline.py 的临时工作目录（封面副本 + report.json）
+dist/_smoke/
