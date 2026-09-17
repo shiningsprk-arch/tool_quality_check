@@ -75,7 +75,7 @@ class QualityCheckTool(BaseTool):
             'tool_id': 'quality_check',
             'name': '质量体检',
             'description': '书库与 EPUB 质量体检：结构、元数据、封面、排版共 75 项检查，只读不改书',
-            'revision': '1.2.1',
+            'revision': '0.1.0',
             'author': '黏菌',
             'publish_date': '2026-09-17',
             'repo_url': 'https://github.com/shiningsprk-arch/tool_quality_check',

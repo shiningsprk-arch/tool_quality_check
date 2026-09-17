@@ -61,19 +61,26 @@ button.qc-btn-sm { padding: 3px 8px; font-size: 12px; }
 .qc-book .t { font-size: 13px; line-height: 1.25; }
 .qc-book .a { font-size: 11px; color: var(--mb-color-text-secondary); }
 
-/* 检查项清单 */
-.qc-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 10px; }
-.qc-group { border: 1px solid var(--mb-color-border); border-radius: 4px; padding: 8px 10px;
-            background: var(--mb-color-bg); align-self: start; }
-.qc-group-head { display: flex; align-items: center; gap: 8px; width: 100%; border: 0;
-                 background: transparent; color: inherit; font: inherit; text-align: left;
-                 padding: 0 0 6px; cursor: pointer; }
+/* 检查项清单：分组之间用分隔线串成一段（不再是一地卡片），组内检查项排成自适应网格。
+   77 项在宽屏下大约 4 列，既不把面板拉得老长，也不会让"缺失项检查"这类小分组孤零零占一行。 */
+.qc-groups { display: block; margin-top: 4px; }
+.qc-group { border-top: 1px solid var(--mb-color-border); padding: 4px 0 8px; }
+.qc-group:first-child { border-top: 0; padding-top: 0; }
+.qc-group-head { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+.qc-group-head:focus-visible { outline: 2px solid var(--mb-color-primary); outline-offset: 2px; }
 .qc-group-title { font-size: 13px; font-weight: 600; }
 .qc-group-head .qc-sub { margin-left: auto; }
-.qc-caret { font-size: 10px; color: var(--mb-color-text-secondary); }
-.qc-check { display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px; padding: 2px 0; }
-.qc-check input { margin-top: 2px; }
-.qc-check label { cursor: pointer; }
+.qc-group-toggle { font-size: 11.5px; line-height: 1.6; padding: 0 8px; border-radius: 10px;
+                   border: 1px solid var(--mb-color-border); background: transparent;
+                   color: var(--mb-color-text-secondary); cursor: pointer; font-family: inherit; }
+.qc-group-toggle:hover { color: var(--mb-color-text); border-color: var(--mb-color-text-secondary); }
+.qc-caret { font-size: 10px; color: var(--mb-color-text-secondary); width: 10px; }
+.qc-group-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+                 gap: 0 16px; margin-top: 2px; }
+.qc-check { display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px;
+            padding: 2px 0; min-width: 0; }
+.qc-check input { margin-top: 2px; flex: none; }
+.qc-check label { cursor: pointer; min-width: 0; }
 .qc-check.unsupported { opacity: .45; }
 .qc-sev { font-size: 10px; padding: 1px 5px; border-radius: 8px; margin-left: 4px; white-space: nowrap; }
 .qc-sev.error { background: var(--qc-error-bg); color: var(--mb-color-error); }
@@ -139,7 +146,7 @@ ul.qc-detail li { font-size: 12px; color: var(--mb-color-text-secondary); word-b
 @media (max-width: 640px) {
   .qc-wrap { padding: 8px; }
   .qc-stats { gap: 12px; }
-  .qc-groups { grid-template-columns: 1fr; }
+  .qc-group-body { grid-template-columns: 1fr; }
   .qc-report thead { display: none; }
   .qc-report, .qc-report tbody, .qc-report tr, .qc-report td { display: block; width: 100%; }
   .qc-report tr.issue-row { border: 1px solid var(--mb-color-border); border-radius: 4px;

@@ -225,17 +225,45 @@
       if (!collapsed) allCollapsed = false;
 
       var box = el('div', 'qc-group');
-      var head = el('button', 'qc-group-head');
-      head.type = 'button';
+      // 组头整行可点（折叠/展开），但里面还要放"全选/清空"，所以用 div+role 而不是 button
+      // ——按钮里嵌按钮是不合法的 HTML。
+      var head = el('div', 'qc-group-head');
+      head.setAttribute('role', 'button');
+      head.tabIndex = 0;
       head.setAttribute('aria-expanded', String(!collapsed));
+      head.appendChild(el('span', 'qc-caret', collapsed ? '▸' : '▾'));
       head.appendChild(el('span', 'qc-group-title', t(GROUP_LABEL_KEY[cat] || cat)));
+
+      var selectable = items.filter(function (c) { return c.supported; });
       var picked = items.filter(function (c) { return !!state.selected[c.key]; }).length;
       head.appendChild(el('span', 'qc-sub', t('checks.groupSel', { n: picked, total: items.length })));
-      head.appendChild(el('span', 'qc-caret', collapsed ? '▸' : '▾'));
-      head.addEventListener('click', function () {
+
+      var allPicked = selectable.length > 0 && selectable.every(function (c) {
+        return !!state.selected[c.key];
+      });
+      var toggle = el('button', 'qc-group-toggle',
+        allPicked ? t('checks.presetNone') : t('checks.presetAll'));
+      toggle.type = 'button';
+      toggle.addEventListener('click', function (e) {
+        e.stopPropagation();
+        selectable.forEach(function (check) {
+          if (allPicked) delete state.selected[check.key];
+          else state.selected[check.key] = true;
+        });
+        syncCoverOption();
+        updateCount();
+        renderChecklist();
+      });
+      head.appendChild(toggle);
+
+      function toggleCollapse() {
         state.collapsed[cat] = !state.collapsed[cat];
         savePrefs();
         renderChecklist();
+      }
+      head.addEventListener('click', toggleCollapse);
+      head.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapse(); }
       });
       box.appendChild(head);
 
@@ -260,10 +288,7 @@
     box.addEventListener('change', function () {
       if (box.checked) state.selected[check.key] = true;
       else delete state.selected[check.key];
-      if (check.key === 'check_covers') {
-        $('opt-cover').checked = box.checked;
-        applyCoverEnabled();
-      }
+      if (check.key === 'check_covers') syncCoverOption();
       updateCount();
       renderChecklistCounts();
     });
@@ -304,9 +329,7 @@
       if (box) box.checked = !!state.selected[check.key];
     });
     // 预设也会勾上"封面检查"，那它的判定方式就该跟着可编辑（否则勾了却不生效）。
-    var coverBox = $('chk-check_covers');
-    $('opt-cover').checked = !!(coverBox && coverBox.checked);
-    applyCoverEnabled();
+    syncCoverOption();
     updateCount();
     renderChecklistCounts();
   }
@@ -494,6 +517,14 @@
       COVER_ROWS[key].forEach(function (id) { $(id).hidden = !show; });
     });
     COVER_NUMBER_INPUTS.forEach(function (id) { $(id).disabled = !on; });
+  }
+
+  // "封面检查"这一项与下方的判定方式选项是同一件事的两处开关：让它们互相跟随，
+  // 免得出现"选项开着但检查项没勾"（看不出为什么没跑）这类状态。
+  function syncCoverOption() {
+    var box = $('chk-check_covers');
+    $('opt-cover').checked = !!(box && box.checked);
+    applyCoverEnabled();
   }
 
   function coverOptions() {

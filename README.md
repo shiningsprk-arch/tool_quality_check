@@ -9,7 +9,7 @@
 ## 安装
 
 1. 系统设置 → 高级配置项，打开 `ENABLE_TOOLBOX_DEV_MODE`。
-2. `/admin/toolbox` 上传 `dist/quality_check-1.2.1.zip`。
+2. `/admin/toolbox` 上传 `dist/quality_check-0.1.0.zip`。
 3. **重启服务**（外置工具的 import 与路由挂载只在进程启动时跑一次；禁用/启用才是即时生效）。
 4. 工具页 `/toolbox/quality_check`。
 
@@ -110,7 +110,7 @@ frontend/
 python -m pytest tests/                   # 回归测试（不依赖 MyBooks/calibre，秒级）
 python scripts/smoke_offline.py            # 对真实 calibre 书库离线跑全部 75 项检查（不需要 MyBooks/calibre）
 python scripts/smoke_offline.py --verbose --checks=check_epub_corrupt_zip
-python scripts/build.py                    # → dist/quality_check-1.2.1.zip（含产物形状校验）
+python scripts/build.py                    # → dist/quality_check-0.1.0.zip（含产物形状校验）
 python scripts/make_icon.py                # 重绘 icon.png
 python scripts/port_shim.py                # 重新生成 qc/shim/** 的规范内容（不碰 dialogs.py）
 ```
