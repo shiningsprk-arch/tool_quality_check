@@ -16,12 +16,15 @@ import re
 from collections import OrderedDict, defaultdict
 
 from .qc import menus
+from .qc.check_azw3 import Azw3Check
 from .qc.check_base import GUILog
 from .qc.check_covers import CoverCheck
 from .qc.check_epub import EpubCheck
 from .qc.check_metadata import MetadataCheck
 from .qc.check_missing import MissingDataCheck
 from .qc.check_mobi import MobiCheck
+from .qc.check_pdf import PdfCheck
+from .qc.check_txt import TxtCheck
 from .qc.dialogs import CoverOptionsDialog
 
 CHECK_CLASSES = OrderedDict((
@@ -30,18 +33,39 @@ CHECK_CLASSES = OrderedDict((
     ('covers', CoverCheck),
     ('metadata', MetadataCheck),
     ('missing', MissingDataCheck),
+    ('pdf', PdfCheck),
+    ('txt', TxtCheck),
 ))
+
+# 少数检查项与同组其它项**不是**同一个实现类：AZW3 那四项挂在「MOBI / AZW3」分组下
+# （cat=mobi，沿用上游的分组），但实现走 Azw3Check。按 cat 取类会把它们交给 MobiCheck，
+# 而 MobiCheck 对陌生 key 只会弹一个 shim 里的 dialog——既不标记也不报错，报告里就成了
+# "这一项很干净"。所以按 key 先查这张表。
+CHECK_CLASSES_BY_KEY = OrderedDict(
+    (key, Azw3Check) for key in
+    ('check_azw3_drm', 'check_azw3_truncated', 'check_azw3_missing_thumb',
+     'check_azw3_mobi6_only')
+)
 
 # What a check needs on disk before it can run at all.
 FORMAT_REQUIREMENTS = {
     'epub': ('EPUB',),
     'mobi': ('MOBI', 'AZW', 'AZW3'),
+    'pdf': ('PDF',),
+    'txt': ('TXT',),
+}
+
+# 有的检查还要宿主 Python 里有某个包才跑得起来（缺了记进 skipped，不假装干净）。
+REQUIRES_MODULE = {
+    # PyMuPDF 由宿主镜像提供（宿主自己的 minify_pdf 就在用）；新版包名是 pymupdf，
+    # fitz 只是兼容别名，所以两个都试。
+    'pdf': ('pymupdf', 'fitz'),
 }
 
 # Quality Check gives every check one icon and one mark string; the port grades them so
 # the report can be triaged. Defaults are per category, with per-check overrides below.
 _DEFAULT_SEVERITY = {'epub': 'error', 'mobi': 'warn', 'covers': 'warn',
-                     'metadata': 'warn', 'missing': 'warn'}
+                     'metadata': 'warn', 'missing': 'warn', 'pdf': 'warn', 'txt': 'warn'}
 
 _SEVERITY_OVERRIDES = {
     # Structural breakage: the book is likely unreadable or malformed.
@@ -104,6 +128,24 @@ _SEVERITY_OVERRIDES = {
     'check_pubdate': 'warn',
     'check_series_gaps': 'info',
     'check_series_pubdate': 'info',
+    # PDF / TXT / AZW3（本仓新增的 16 项）。同名 cat 的默认值都是 warn，这里把每项写全，
+    # 让"这一项凭什么算 error"一眼可见：只有真的读不了/打不开才算结构性损坏。
+    'check_pdf_unreadable': 'error',
+    'check_pdf_encrypted': 'error',
+    'check_pdf_no_text_layer': 'warn',
+    'check_pdf_mixed_page_size': 'info',
+    'check_pdf_oversized': 'info',
+    'check_pdf_no_toc': 'info',
+    'check_txt_empty': 'error',
+    'check_txt_not_utf8': 'warn',
+    'check_txt_bom': 'info',
+    'check_txt_control_chars': 'info',
+    'check_txt_mixed_newlines': 'info',
+    'check_txt_long_lines': 'info',
+    'check_azw3_drm': 'error',
+    'check_azw3_truncated': 'error',
+    'check_azw3_missing_thumb': 'warn',
+    'check_azw3_mobi6_only': 'info',
     # Checks excluded from the port (kept in the registry so the UI can explain why).
 }
 
@@ -168,6 +210,24 @@ def severity_for(check_key):
         return _SEVERITY_OVERRIDES[check_key]
     menu = menus.PLUGIN_MENUS.get(check_key) or {}
     return _DEFAULT_SEVERITY.get(menu.get('cat'), 'warn')
+
+
+def missing_dependency(cat):
+    """该 cat 的检查是否缺宿主 Python 里的包；缺了返回一句原因，齐了返回空串。
+
+    纯函数（只做 import 探测），所以离线可测。用它而不是在检查类里 try/except：缺依赖是
+    "这一组跑不了"，要如实记进报告的 skipped，而不是让每一项都静默变成"没命中"。
+    """
+    modules = REQUIRES_MODULE.get(cat)
+    if not modules:
+        return ''
+    for name in modules:
+        try:
+            __import__(name)
+            return ''
+        except ImportError:
+            continue
+    return 'needs %s in the host Python' % '/'.join(modules)
 
 
 def describe_checks():
@@ -308,8 +368,14 @@ def run_checks(api, book_ids, check_keys, options, progress_cb, cancel_event, co
         menu = menus.PLUGIN_MENUS.get(check_key)
         if menu is None or check_key in UNSUPPORTED:
             continue
-        check_class = CHECK_CLASSES.get(menu.get('cat'))
+        check_class = CHECK_CLASSES_BY_KEY.get(check_key) or CHECK_CLASSES.get(menu.get('cat'))
         if check_class is None:
+            continue
+
+        missing = missing_dependency(menu.get('cat'))
+        if missing:
+            skipped[check_key] = missing
+            matched_by_check[check_key] = []
             continue
 
         scoped = _scope_for(db, menu, book_ids)

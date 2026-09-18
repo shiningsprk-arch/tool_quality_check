@@ -416,6 +416,9 @@ def test_error_severity_means_structural_breakage(backend_pkg):
         'check_epub_corrupt_zip', 'check_epub_no_container', 'check_epub_files_missing',
         'check_epub_broken_images', 'check_epub_toc_broken', 'check_epub_guide_broken',
         'check_epub_drm',
+        # 本仓新增的三种格式里，只有"真的读不了"才算结构性损坏
+        'check_pdf_unreadable', 'check_pdf_encrypted', 'check_txt_empty',
+        'check_azw3_drm', 'check_azw3_truncated',
     }
     # 这两个是 svg_cover / converted（info）的反面，曾被落到 EPUB 类默认的 error
     assert driver.severity_for('check_epub_no_svg_cover') == 'info'
@@ -428,8 +431,8 @@ def test_recommended_preset_scope(backend_pkg):
     checks = driver.describe_checks()
     supported = [c for c in checks if c['supported']]
     recommended = [c for c in supported if not c['noisy']]
-    assert len(supported) == 75
-    assert len(recommended) == 65
+    assert len(supported) == 91
+    assert len(recommended) == 81
 
 
 def test_summary_marks_noisy_rows(backend_pkg):
@@ -445,7 +448,8 @@ def test_registry_shape(backend_pkg):
     checks = driver.describe_checks()
     keys = [c['key'] for c in checks]
     assert len(keys) == len(set(keys))
-    assert len(checks) == 77
+    # 93 = 上游 77 + 本仓新增的 PDF/TXT/AZW3 16 项
+    assert len(checks) == 93
     assert sorted(c['key'] for c in checks if not c['supported']) == \
         ['check_title_case', 'search_epub']
     for check in checks:
@@ -574,3 +578,291 @@ def test_progress_falls_back_to_the_report_on_disk():
 def test_report_task_id_falls_back_after_a_restart():
     names = _called_names(_tool_def('_report_task_id', ast.FunctionDef))
     assert 'last_completed_task_id' in names
+
+
+# --------------------------------------------------------------------------- PDF / TXT / AZW3
+
+def test_format_scoping_covers_the_new_formats(adapter_factory, backend_pkg):
+    """PDF / TXT 各自的检查只跑有那种格式的书（cat→格式的门控必须登记）。"""
+    driver = submodule('driver')
+    menus = submodule('qc.menus')
+    db = adapter_factory({
+        1: {'id': 1, 'title': 'P', 'available_formats': ['PDF']},
+        2: {'id': 2, 'title': 'T', 'available_formats': ['TXT']},
+        3: {'id': 3, 'title': 'E', 'available_formats': ['EPUB']},
+    })
+    assert driver._scope_for(db, menus.PLUGIN_MENUS['check_pdf_encrypted'], [1, 2, 3]) == [1]
+    assert driver._scope_for(db, menus.PLUGIN_MENUS['check_txt_not_utf8'], [1, 2, 3]) == [2]
+    # 元数据/缺失项检查不受格式限制
+    assert driver._scope_for(db, menus.PLUGIN_MENUS['check_missing_isbn'], [1, 2, 3]) == [1, 2, 3]
+
+
+def test_azw3_checks_have_their_own_class(backend_pkg):
+    """AZW3 那四项与 MOBI 共用分组（cat=mobi），但必须由 Azw3Check 接手。
+
+    按 cat 取类会落到 MobiCheck，而它对陌生 key 只会弹一个 shim dialog：不标记、不报错，
+    报告里就变成"这一项很干净"。这条断言守的就是那根线。
+    """
+    driver = submodule('driver')
+    menus = submodule('qc.menus')
+    for key in ('check_azw3_drm', 'check_azw3_truncated',
+                'check_azw3_missing_thumb', 'check_azw3_mobi6_only'):
+        assert menus.PLUGIN_MENUS[key]['cat'] == 'mobi'
+        resolved = driver.CHECK_CLASSES_BY_KEY.get(key) or \
+            driver.CHECK_CLASSES.get(menus.PLUGIN_MENUS[key]['cat'])
+        assert resolved.__name__ == 'Azw3Check', key
+    # 上游那四项仍然走 MobiCheck
+    assert driver.CHECK_CLASSES_BY_KEY.get('check_mobi_missing_asin') is None
+    assert driver.CHECK_CLASSES['mobi'].__name__ == 'MobiCheck'
+
+
+def test_missing_dependency_semantics(backend_pkg, monkeypatch):
+    """缺依赖要能如实说出来（缺了整组记 skipped），有依赖时返回空串。"""
+    driver = submodule('driver')
+    assert driver.missing_dependency('epub') == ''
+    assert isinstance(driver.missing_dependency('pdf'), str)
+    monkeypatch.setitem(driver.REQUIRES_MODULE, 'pretendcat', ('no_such_module_xyz',))
+    monkeypatch.setitem(driver.REQUIRES_MODULE, 'satisfied', ('json',))
+    assert driver.missing_dependency('pretendcat') == 'needs no_such_module_xyz in the host Python'
+    assert driver.missing_dependency('satisfied') == ''
+
+
+def test_txt_digest_flags_common_problems(backend_pkg):
+    """TXT 的提取层是纯函数：给字节就得事实，六个判定各测正反两面。"""
+    txt = submodule('qc.check_txt')
+    ok = txt.txt_digest('第一章\n正文\n第二章\n'.encode('utf-8'))
+    assert ok['size'] > 0 and ok['decoded_ok'] and ok['bom'] == ''
+    assert not (txt.hit_empty(ok) or txt.hit_not_utf8(ok) or txt.hit_bom(ok)
+                or txt.hit_control_chars(ok) or txt.hit_mixed_newlines(ok)
+                or txt.hit_long_lines(ok))
+
+    assert txt.hit_empty(txt.txt_digest(b''))
+    assert txt.hit_empty(txt.txt_digest('  \r\n\t\n'.encode('utf-8')))
+    assert not txt.hit_empty(ok)
+
+    gbk = '第一章\n正文\n'.encode('gb18030')
+    bad = txt.txt_digest(gbk)
+    assert txt.hit_not_utf8(bad)
+    assert bad['encoding_hint']          # 能给出一个猜测（chardet 或 gb18030 回退）
+
+    with_bom = txt.txt_digest(b'\xef\xbb\xbf' + '第一章\n'.encode('utf-8'))
+    assert txt.hit_bom(with_bom)
+    assert not txt.hit_not_utf8(with_bom)   # 去掉 BOM 后是合法 UTF-8，不该同时报编码
+    assert with_bom['bom'] == 'UTF-8'
+
+    nul = txt.txt_digest(b'ab\x00cd\n')
+    assert txt.hit_control_chars(nul)
+    assert nul['control_count'] == 1
+    assert nul['control_first'] == (2, 0)
+
+    mixed = txt.txt_digest(b'a\r\nb\nc\rd')
+    assert txt.hit_mixed_newlines(mixed)
+    assert mixed['newlines'] == {'crlf': 1, 'lf': 1, 'cr': 1}
+    assert not txt.hit_mixed_newlines(txt.txt_digest(b'a\r\nb\r\n'))
+    assert not txt.hit_mixed_newlines(txt.txt_digest(b'a\nb\n'))
+    # 整本统一的 CR（老 Mac 文本）不算"混用"，虽然也确实一个 LF 都没有
+    assert not txt.hit_mixed_newlines(txt.txt_digest(b'a\rb\r'))
+
+    one_line = txt.txt_digest(('x' * (txt.MAX_LINE_CHARS + 10)).encode('utf-8'))
+    assert txt.hit_long_lines(one_line)
+    assert one_line['line_count'] == 1
+    long_line = txt.txt_digest(('y' * (txt.MAX_LINE_CHARS + 1) + '\n短\n').encode('utf-8'))
+    assert txt.hit_long_lines(long_line)
+    assert not txt.hit_long_lines(ok)
+
+
+def test_pdf_predicates(backend_pkg):
+    """PDF 的判定层只吃 digest，所以不装 PyMuPDF 也能测。"""
+    pdf = submodule('qc.check_pdf')
+    base = {'size': 1000000, 'pages': 100, 'encrypted': False, 'needs_pass': False,
+            'repaired': False, 'toc_entries': 5, 'text_chars': 2000, 'text_sampled': 5,
+            'page_sizes': [(595.0, 842.0)] * 5, 'size_sampled': 5, 'partial': False}
+    assert not pdf.hit_unreadable(base)
+    assert not pdf.hit_encrypted(base)
+    assert not pdf.hit_no_text_layer(base)
+    assert not pdf.hit_oversized(base)
+    assert not pdf.hit_no_toc(base)
+    assert not pdf.hit_mixed_page_size(base)
+
+    assert pdf.hit_unreadable(dict(base, pages=0))
+    # 结构坏了、只能靠 PyMuPDF 修复打开，也算"读不了"（素材库的 pdf-damaged 就是这个）
+    assert pdf.hit_unreadable(dict(base, repaired=True))
+    assert not pdf.hit_unreadable(dict(base, repaired=True, encrypted=True))
+    # 加密打不开的不能同时被报成"打不开"
+    assert not pdf.hit_unreadable(dict(base, pages=0, encrypted=True, needs_pass=True))
+    assert pdf.hit_encrypted(dict(base, encrypted=True))
+
+    assert pdf.hit_no_text_layer(dict(base, text_chars=0))
+    assert not pdf.hit_no_text_layer(dict(base, pages=0, text_chars=0))
+    # 修复态下页级结论不可信：只留"读不了"那一条，别再顺带说没有文字层/目录
+    damaged = dict(base, repaired=True, text_chars=0, toc_entries=0)
+    assert pdf.hit_unreadable(damaged)
+    assert not pdf.hit_no_text_layer(damaged)
+    assert not pdf.hit_no_toc(damaged)
+    assert not pdf.hit_mixed_page_size(dict(damaged, page_sizes=[(595.0, 842.0), (420.0, 595.0)]))
+    # 加密打不开时"文字层/目录"是**未知**（哨兵 None）而不是空：不能反过来说它没有。
+    # 素材库里的 pdf-encrypted 就是这个场景抓出来的误报。
+    locked = dict(base, encrypted=True, needs_pass=True, toc_entries=None,
+                  text_chars=None, text_sampled=0, page_sizes=[])
+    assert not pdf.hit_no_text_layer(locked)
+    assert not pdf.hit_no_toc(locked)
+    # 一页都没抽样到（text_sampled == 0）时同样不能下"没有文字层"的结论
+    assert not pdf.hit_no_text_layer(dict(base, text_chars=0, text_sampled=0))
+    assert pdf.hit_oversized(dict(base, size=pdf.BYTES_PER_PAGE_WARN * 100 + 1))
+    assert pdf.hit_no_toc(dict(base, toc_entries=0))
+    assert pdf.hit_mixed_page_size(dict(base, page_sizes=[(595.0, 842.0), (420.0, 595.0)]))
+    # A4 与 Letter 的高差 5.9% 也算混排（真书里那种"两种页面格式"的混）
+    assert pdf.hit_mixed_page_size(dict(base, page_sizes=[(595.0, 842.0), (612.0, 792.0)]))
+    # 扫描件的逐页抖动（几个百分点）不算：容差 5%，拿真书那本扫描绘本定的
+    assert not pdf.hit_mixed_page_size(dict(base, page_sizes=[
+        (960.0, 947.2), (954.0, 948.0), (996.0, 945.0)]))
+    assert not pdf.hit_mixed_page_size(dict(base, page_sizes=[(595.0, 842.0), (595.5, 842.0)]))
+
+
+def test_pdf_digest_on_real_pdfs(backend_pkg, tmp_path):
+    """真开一次 PDF（本机没装 PyMuPDF 就跳过）：正常件、纯图形件、尺寸混用、加密件。"""
+    pdf = submodule('qc.check_pdf')
+    fitz = pdf._load_fitz()
+    if fitz is None:
+        pytest.skip('本机没有 PyMuPDF，提取层由素材库 smoke 覆盖')
+
+    normal = os.path.join(str(tmp_path), 'normal.pdf')
+    doc = fitz.open()
+    for index in range(2):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((72, 100), 'chapter %d' % index)
+    doc.set_toc([[1, 'Chapter 1', 1], [1, 'Chapter 2', 2]])
+    doc.save(normal)
+    doc.close()
+
+    digest, problem = pdf.pdf_digest(normal)
+    assert problem is None and digest['pages'] == 2
+    assert digest['text_chars'] > 0 and not pdf.hit_no_text_layer(digest)
+    assert digest['toc_entries'] == 2 and not pdf.hit_no_toc(digest)
+    assert not pdf.hit_mixed_page_size(digest) and not pdf.hit_encrypted(digest)
+    assert not pdf.hit_unreadable(digest)
+
+    drawn = os.path.join(str(tmp_path), 'drawn.pdf')
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)
+    page.draw_rect(fitz.Rect(50, 50, 400, 600))
+    doc.save(drawn)
+    doc.close()
+    digest, problem = pdf.pdf_digest(drawn)
+    assert problem is None and pdf.hit_no_text_layer(digest)   # 只有图形 → 像扫描件
+
+    mixed = os.path.join(str(tmp_path), 'mixed.pdf')
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.new_page(width=420, height=595)
+    doc.save(mixed)
+    doc.close()
+    digest, _ = pdf.pdf_digest(mixed)
+    assert pdf.hit_mixed_page_size(digest)
+
+    locked = os.path.join(str(tmp_path), 'locked.pdf')
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.save(locked, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw='secret', owner_pw='secret')
+    doc.close()
+    digest, problem = pdf.pdf_digest(locked)
+    assert problem is None and digest['encrypted'] and digest['needs_pass']
+    assert pdf.hit_encrypted(digest)
+    assert not pdf.hit_unreadable(digest)
+
+    broken = os.path.join(str(tmp_path), 'broken.pdf')
+    with open(broken, 'wb') as stream:
+        stream.write(b'%PDF-1.4\nthis is not a real pdf at all\n')
+    digest, problem = pdf.pdf_digest(broken)
+    assert problem is not None or pdf.hit_unreadable(digest)
+
+
+# ---- 现造一颗最小 MOBI 容器：真书都"健康"，DRM 与截断只能这样造 ----
+
+def _exth_record(rec_id, payload):
+    import struct
+    return struct.pack('>LL', rec_id, len(payload) + 8) + payload
+
+
+def _minimal_mobi(version=8, encryption=0, exth_ids=(201, 202)):
+    """拼一颗结构合法的最小 MOBI：PalmDB 头 + 记录表 + 记录 0（PalmDOC + MOBI + EXTH）。"""
+    import struct
+    records = [_exth_record(rec_id, b'\x00\x00\x00\x01') for rec_id in exth_ids]
+    if version >= 8:
+        records.append(_exth_record(121, b'\x00\x00\x00\x4e'))   # KF8 边界
+    exth = b'EXTH' + struct.pack('>LL', 12 + sum(len(r) for r in records), len(records)) \
+        + b''.join(records)
+
+    palmdoc = struct.pack('>HHLHHHH', 2, 0, 1000, 8, 4096, encryption, 0)
+    mobi = bytearray(232)
+    mobi[0:4] = b'MOBI'
+    struct.pack_into('>L', mobi, 4, 232)          # header length
+    struct.pack_into('>L', mobi, 8, 2)            # type = book
+    struct.pack_into('>L', mobi, 12, 65001)       # codepage
+    struct.pack_into('>L', mobi, 16, 7)           # unique id
+    struct.pack_into('>L', mobi, 20, version)     # file version
+    struct.pack_into('>L', mobi, 0x70, 0x50)      # EXTH flags（0x40 = 有 EXTH）
+    section0 = palmdoc + bytes(mobi) + exth
+    section1 = b'<html><body>text</body></html>'
+
+    count = 2
+    start = 78 + count * 8 + 2
+    header = bytearray(start)
+    header[0:32] = b'Fixture Book'.ljust(32, b'\x00')
+    header[0x3C:0x40] = b'BOOK'
+    header[0x40:0x44] = b'MOBI'
+    struct.pack_into('>H', header, 76, count)
+    struct.pack_into('>L', header, 78, start)
+    struct.pack_into('>L', header, 86, start + len(section0))
+    return bytes(header) + section0 + section1
+
+
+class _SilentLog(object):
+    def __call__(self, *args):
+        pass
+    error = exception = __call__
+
+
+def _read_facts(azw3, mobi6, path):
+    with mobi6.MinimalMobiReader(path, _SilentLog()) as reader:
+        return azw3.azw3_facts(reader)
+
+
+def test_minimal_mobi_container_parses(backend_pkg, tmp_path):
+    """mobi6 的扩展（version/KF8/加密/EXTH 记录表）在现造容器上按预期读出来。"""
+    azw3 = submodule('qc.check_azw3')
+    mobi6 = submodule('qc.mobi6')
+
+    def write(name, payload):
+        path = os.path.join(str(tmp_path), name)
+        with open(path, 'wb') as stream:
+            stream.write(payload)
+        return path
+
+    kf8 = write('kf8.azw3', _minimal_mobi(version=8))
+    facts = _read_facts(azw3, mobi6, kf8)
+    assert facts['version'] == 8 and facts['has_kf8']
+    assert facts['encryption'] == 0 and not azw3.hit_drm(facts)
+    assert not azw3.hit_mobi6_only(facts)
+    assert not azw3.hit_missing_thumb(facts)     # 有 EXTH 201/202
+    assert not azw3.hit_truncated(facts)
+    assert facts['exth_count'] == 3              # 121 / 201 / 202 都留在完整记录表里
+
+    legacy = write('legacy.azw3', _minimal_mobi(version=6, exth_ids=(202,)))
+    facts = _read_facts(azw3, mobi6, legacy)
+    assert facts['version'] == 6 and not facts['has_kf8']
+    assert azw3.hit_mobi6_only(facts)
+    assert not azw3.hit_missing_thumb(facts)     # 只有 202 也算有封面记录
+
+    bare = write('bare.azw3', _minimal_mobi(version=8, exth_ids=()))
+    facts = _read_facts(azw3, mobi6, bare)
+    assert azw3.hit_missing_thumb(facts)
+
+    drm = write('drm.azw3', _minimal_mobi(version=8, encryption=2))
+    facts = _read_facts(azw3, mobi6, drm)
+    assert facts['encryption'] == 2 and azw3.hit_drm(facts)
+
+    # 记录表还在、数据被截断：越界记录要能被抓出来
+    truncated = write('cut.azw3', _minimal_mobi(version=8)[:100])
+    facts = _read_facts(azw3, mobi6, truncated)
+    assert azw3.hit_truncated(facts)

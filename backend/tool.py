@@ -55,7 +55,7 @@ LATEST_FILENAME = driver.LATEST_MARKER
 
 # 单次体检最多覆盖的书本数：整库体检是逐检查逐书跑，上限防止误点全库把服务拖住。
 MAX_BOOKS = 5000
-# 检查项上限（上游一共 77 个）
+# 检查项上限（注册表 93 条：上游 77 + 本仓新增的 PDF/TXT/AZW3 共 16 条）
 MAX_CHECKS = 200
 
 _STATUS_RUNNING = BackgroundTask.STATUS_RUNNING
@@ -81,10 +81,10 @@ class QualityCheckTool(BaseTool):
         return {
             'tool_id': 'quality_check',
             'name': '质量体检',
-            'description': '书库与 EPUB 质量体检：结构、元数据、封面、排版共 75 项检查，只读不改书',
-            'revision': '0.1.0',
+            'description': '书库与 EPUB/PDF/AZW3/TXT 质量体检：结构、元数据、封面、排版共 91 项检查，只读不改书',
+            'revision': '0.2.0',
             'author': '黏菌',
-            'publish_date': '2026-09-17',
+            'publish_date': '2026-09-18',
             'repo_url': 'https://github.com/shiningsprk-arch/tool_quality_check',
         }
 

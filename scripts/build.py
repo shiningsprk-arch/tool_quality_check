@@ -29,6 +29,10 @@ REQUIRED = (
     'LICENSE',
     'backend/__init__.py',
     'backend/tool.py',
+    # 本仓新增的三种格式的检查（上游没有这些文件）：漏打包要到装完看报告才会发现少了一整组
+    'backend/qc/check_pdf.py',
+    'backend/qc/check_txt.py',
+    'backend/qc/check_azw3.py',
     'frontend/index.html',
     'frontend/app.js',
     'frontend/lib/i18n.js',

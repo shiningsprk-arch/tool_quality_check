@@ -23,6 +23,10 @@ class FireEXTHHeader(object):
     '''
     This is an extension of the calibre EXTHHeader class just for the
     purposes of getting the cdetype field
+
+    移植说明（本仓改动，非上游原样）：上游只认下面四个 id、其余记录读完即丢。这里额外
+    保留一份完整记录表 `records`，并把 AZW3 检查要用到的几个 id 解析成具名字段；同时给
+    循环加了一道保护——上游遇到损坏的 num_items/size 会空转或越界切片。**只加读，不写**。
     '''
     def __init__(self, raw):
         self.doctype = raw[:4]
@@ -34,15 +38,39 @@ class FireEXTHHeader(object):
         self.asin = ''
         self.asin2 = ''
         self.clipping_limit = None
+        # ---- 本仓新增：完整记录表 + 具名字段 ----
+        # 100/101 是作者/出版社，**不是** DRM；MOBI 的 DRM 标在 PalmDOC 头的加密类型上。
+        self.records = {}
+        self.kf8_boundary = None      # 121 KF8 边界记录
+        self.resource_count = None    # 125 资源记录数
+        self.cover_offset = None      # 201 封面记录号
+        self.thumbnail_offset = None  # 202 缩略图记录号
+        self.has_fake_cover = None    # 203 是否有占位封面
 
         while left > 0:
             left -= 1
+            if pos + 8 > len(raw):
+                break
             idx, size = struct.unpack('>LL', raw[pos:pos + 8])
+            # 本仓新增：size 明显不合法或越过缓冲区时停住，不按垃圾值继续走
+            if size < 8 or pos + size > len(raw):
+                break
             content = raw[pos + 8:pos + size]
             pos += size
+            self.records[idx] = content
             if idx == 113:
                 # asin
                 self.asin = content
+            elif idx == 121:
+                self.kf8_boundary = self._be_int(content)
+            elif idx == 125:
+                self.resource_count = self._be_int(content)
+            elif idx == 201:
+                self.cover_offset = self._be_int(content)
+            elif idx == 202:
+                self.thumbnail_offset = self._be_int(content)
+            elif idx == 203:
+                self.has_fake_cover = self._be_int(content)
             elif idx == 401:
                 # clippinglimit
                 self.clipping_limit = ord(content)
@@ -53,6 +81,11 @@ class FireEXTHHeader(object):
                 # cdetype
                 self.asin2 = content
 
+    @staticmethod
+    def _be_int(content):
+        """EXTH 里的数值字段是大端 4 字节；长度不足时按高位补零读。"""
+        return struct.unpack('>L', (content + b'\x00' * 4)[:4])[0]
+
 
 class MinimalMobiHeader(object):
 
@@ -60,6 +93,8 @@ class MinimalMobiHeader(object):
         self.log = log
         if len(raw) <= 16:
             self.exth_flag, self.exth = 0, None
+            # 本仓新增：短头时给出安全默认值，免得读 version 的地方直接 AttributeError
+            self.length = self.type = self.codepage = self.unique_id = self.version = 0
         else:
             self.exth_flag, = struct.unpack('>L', raw[0x80:0x84])
             self.length, self.type, self.codepage, self.unique_id, \
@@ -111,7 +146,32 @@ class MinimalMobiReader(object):
         for i in range(self.num_sections):
             self.sections.append((section(i), self.section_headers[i]))
 
-        self.book_header = MinimalMobiHeader(self.sections[0][0], self.log)
+        self.book_header = MinimalMobiHeader(self.sections[0][0], self.log) if self.sections else None
+
+        # ---- 本仓新增的只读容器事实（check_azw3.py 用）----
+        # 记录 0 的 PalmDOC 头 0x0C 是加密类型：0=未加密、1=旧 Mobipocket、2=Mobipocket。
+        # MOBI 的 DRM 只体现在这里——EXTH 里没有 DRM 字段，100/101 是作者/出版社。
+        head0 = self.sections[0][0] if self.sections else b''
+        self.file_size = len(raw)
+        self.palmdoc_encryption = struct.unpack('>H', head0[0x0C:0x0E])[0] if len(head0) >= 0x0E else 0
+        self.encrypted = self.palmdoc_encryption != 0
+        # MOBI 头的 File version：6 = 老 MOBI6，8 = KF8（AZW3 的双层结构）。实测两本真书
+        # 正好是 6 与 8；calibre 转换出的 .azw3/.mobi 都是 8。
+        self.has_kf8 = bool(self.book_header and self.book_header.version >= 8)
+        self.bad_records = self._bad_records(raw)
+
+    def _bad_records(self, raw):
+        """记录表里越界或倒挂的记录号；``-1`` 表示记录表本身已超出文件（只读诊断）。"""
+        bad = []
+        if 78 + self.num_sections * 8 + 2 > len(raw):
+            bad.append(-1)
+        prev = -1
+        for i, header in enumerate(self.section_headers):
+            offset = header[0]
+            if offset < prev or offset >= len(raw):
+                bad.append(i)
+            prev = offset
+        return bad
 
     def __enter__(self):
         return self

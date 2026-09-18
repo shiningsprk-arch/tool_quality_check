@@ -26,9 +26,10 @@ body[data-theme="dark"] {
 
 .qc-wrap { max-width: 1180px; margin: 0 auto; padding: 16px; }
 
-.qc-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
-.qc-head h1 { font-size: 20px; margin: 0; }
 .qc-sub { color: var(--mb-color-text-secondary); font-size: 13px; }
+
+/* 页脚只放来源署名与"只读"承诺：工具名由宿主工具页显示，页内不再重复。 */
+.qc-foot { margin: 16px 2px 4px; }
 
 .qc-card { border: 1px solid var(--mb-color-border); border-radius: var(--mb-radius);
            background: var(--mb-color-surface); padding: 12px 14px; margin: 12px 0; }

@@ -139,10 +139,12 @@
 
   // ---------------------------------------------------------------- 检查项
 
-  var GROUP_ORDER = ['epub', 'mobi', 'covers', 'metadata', 'missing'];
+  // 分组顺序与后端注册表的 cat 对应。新加一种格式的检查项时，这里必须一起加——后端会
+  // 返回它，但清单只渲染这张表里的分组，漏了就会出现"后端有、界面看不见、勾不上"。
+  var GROUP_ORDER = ['epub', 'mobi', 'pdf', 'txt', 'covers', 'metadata', 'missing'];
   var GROUP_LABEL_KEY = {
-    epub: 'group.epub', mobi: 'group.mobi', covers: 'group.covers',
-    metadata: 'group.metadata', missing: 'group.missing'
+    epub: 'group.epub', mobi: 'group.mobi', pdf: 'group.pdf', txt: 'group.txt',
+    covers: 'group.covers', metadata: 'group.metadata', missing: 'group.missing'
   };
 
   // 与后端 driver._SEVERITY_OVERRIDES 对齐的"排版/杂项"子集，用于预设按钮。
@@ -349,8 +351,10 @@
       }).map(function (c) { return c.key; });
     }
     if (name === 'structure') {
+      // 「结构」预设 = 各格式的结构/完好性检查（含 PDF/TXT，它们整组都是这一类）
       return state.checks.filter(function (c) {
-        return c.supported && (c.cat === 'epub' || c.cat === 'mobi') && STYLE_CHECKS.indexOf(c.key) === -1;
+        return c.supported && (c.cat === 'epub' || c.cat === 'mobi' ||
+          c.cat === 'pdf' || c.cat === 'txt') && STYLE_CHECKS.indexOf(c.key) === -1;
       }).map(function (c) { return c.key; });
     }
     if (name === 'metadata') {

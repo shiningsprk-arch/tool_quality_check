@@ -1,10 +1,10 @@
 {
   "tool_id": "quality_check",
   "name": "质量体检",
-  "description": "书库与 EPUB 质量体检：结构、元数据、封面、排版共 75 项检查，一次跑完出一份报告，只读不改书",
-  "revision": "0.1.0",
+  "description": "书库与 EPUB/PDF/AZW3/TXT 质量体检：结构、元数据、封面、排版共 91 项检查，一次跑完出一份报告，只读不改书",
+  "revision": "0.2.0",
   "author": "黏菌",
-  "publish_date": "2026-09-17",
+  "publish_date": "2026-09-18",
   "core_api_version": "1.3.0",
   "entry_backend": "tool.QualityCheckTool",
   "entry_frontend": "index.html",
