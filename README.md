@@ -44,28 +44,6 @@
 
 ---
 
-## 这是怎么移植的（为什么检查逻辑一行没改）
-
-```
-backend/
-├── qc/                 上游 Quality Check 的检查代码（GPL-3）
-│   ├── check_epub.py        2127 行，41 项 EPUB 检查
-│   ├── check_metadata.py    19 项元数据检查
-│   ├── check_covers.py / check_missing.py / check_mobi.py / helpers.py
-│   ├── check_pdf.py / check_txt.py / check_azw3.py   ← **本仓新写**（上游没有；文件头已注明）
-│   ├── mobi6.py            上游原样 + 本仓的只读扩展（EXTH 记录表、加密/KF8/越界事实）
-│   ├── menus.py            上游 config.py 的菜单/常量部分（Qt 部分去掉；末尾 16 条是本仓新增）
-│   ├── dialogs.py          ← 唯一新写的"运行时替身"，见下
-│   └── shim/               ← 最小 calibre API 替身
-├── adapter.py           CoreAPI → 上游期望的 db/gui 形状
-├── driver.py            范围、进度、结果收集、报告
-└── tool.py              BaseTool + 7 条 @js @is_admin 路由
-```
-
-两个接缝是这次移植的全部工作量：
-
-1. **`qc/dialogs.py`**：上游用 `QProgressDialog` + QTimer 驱动逐书循环。这里换成一个**同步、可取消、容错**的循环，并顺手把每本书的日志增量归属到那本书——报告里每本书的明细就是这么来的（另一根必须接对的线：检查项写日志用的是自己的 `BaseCheck.log`，所以 `driver` 在跑每个检查项之前会把它指到 `gui.current_log` 上；接错就会像早期那样，每条问题都只剩"该检查项上游不输出逐条明细"）。上游的 `check_all_files()` 因此可以逐字不动。
-2. **`qc/shim/`**：上游会 `import calibre.*` 的一小撮 API（zipfile / logging / chardet / oeb.XPath / parse_html / metadata 工具函数 / Encryption / six / polyglot）。这里逐个补上最小实现；`adapter.py` 再把宿主 CoreAPI 包装成上游期望的 `db` / `gui`。
 
 检查结果如何收集：上游把命中的书用 `set_marked_ids` + `marked:xxx` 搜索呈现给 GUI。这里把 `set_marked_ids` 收进报告；`MissingDataCheck` 那 11 项上游只是设一个 calibre 搜索串让 GUI 过滤，这里优先把该查询串转发给宿主的 `search_ids()`，失败再本地判定。
 
