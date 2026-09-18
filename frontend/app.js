@@ -720,7 +720,9 @@
     });
   }
 
-  // 进页面时把上一次任务的状态捡回来：报告本来就在任务工作目录里躺着，刷新一下不该让它消失。
+  // 进页面时把上一次的体检结果捡回来：报告就在磁盘上，刷新、重开工具页、甚至 MyBooks
+  // 重启过（后端会从磁盘认回上次那份报告），都不该让它消失。只有"确实还没跑过"才安静地
+  // 停在空态，其它错误要说出来——否则空白页看起来和"检查完了没发现问题"一模一样。
   function restore() {
     return api('progress').then(function (rsp) {
       var data = rsp.data || {};
@@ -733,12 +735,15 @@
         return;
       }
       if (data.status === 'completed') {
-        $('run-status').textContent = t('run.done') + (data.cancelled ? ' · ' + t('run.cancelled') : '');
+        $('run-status').textContent = t('run.done') +
+          (data.cancelled ? ' · ' + t('run.cancelled') : '') +
+          (data.restored ? ' · ' + t('run.restored') : '');
         renderProgress();
         loadReport(0);
       }
-    }).catch(function () {
-      // 还没有任何任务（task.not_found）——保持初始状态。
+    }).catch(function (err) {
+      if (err && err.code === 'task.not_found') return null;
+      showAlert(t('error.' + ((err && err.code) || 'unknown'), { msg: (err && err.message) || '' }));
       return null;
     });
   }

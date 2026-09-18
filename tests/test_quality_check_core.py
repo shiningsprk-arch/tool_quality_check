@@ -13,6 +13,7 @@
 
 用法：``python -m pytest tests/test_quality_check_core.py``
 """
+import ast
 import datetime
 import importlib
 import importlib.util
@@ -462,3 +463,114 @@ def test_epub_format_scoping(adapter_factory, backend_pkg):
     menu = menus.PLUGIN_MENUS['check_epub_corrupt_zip']
     assert driver._scope_for(db, menu, [1, 2]) == [1]
     assert driver._scope_for(db, menus.PLUGIN_MENUS['check_missing_isbn'], [1, 2]) == [1, 2]
+
+
+# --------------------------------------------------------------------------- 跨进程找回上次报告
+
+def _finished_report():
+    report = _sample_report()
+    report.update({
+        'task_id': 7,
+        'generated_at': '2026-09-18 20:02:20',
+        'scope_label': '全部图书',
+        'errors': [{'check': 'check_epub_corrupt_zip', 'error': 'boom'}],
+        'cancelled': True,
+    })
+    return report
+
+
+def test_latest_marker_round_trip(backend_pkg, tmp_path):
+    driver = submodule('driver')
+    path = os.path.join(str(tmp_path), driver.LATEST_MARKER)
+    assert driver.write_latest_marker(path, _finished_report()) is True
+    assert driver.read_latest_marker(path) == {
+        'task_id': 7, 'generated_at': '2026-09-18 20:02:20'}
+
+
+def test_read_latest_marker_tolerates_missing_and_torn(backend_pkg, tmp_path):
+    """读不出来的标记一律当作"没有标记"：退回空态，绝不指向一份来路不明的报告。"""
+    driver = submodule('driver')
+    assert driver.read_latest_marker(os.path.join(str(tmp_path), 'nope.json')) is None
+    torn = os.path.join(str(tmp_path), 'torn.json')
+    with open(torn, 'w', encoding='utf-8') as f:
+        f.write('{"task_id": 7, ')
+    assert driver.read_latest_marker(torn) is None
+    wrong_kind = os.path.join(str(tmp_path), 'list.json')
+    with open(wrong_kind, 'w', encoding='utf-8') as f:
+        f.write('[1, 2]')
+    assert driver.read_latest_marker(wrong_kind) is None
+
+
+def test_marker_needs_the_same_run(backend_pkg):
+    """task_id 在新进程里会从 1 重来，所以只有 task_id 与 generated_at 都对上才算那份报告。"""
+    driver = submodule('driver')
+    report = _finished_report()
+    marker = driver.latest_marker(report)
+    assert driver.marker_matches(marker, report) is True
+    assert driver.marker_matches(marker, dict(report, generated_at='2026-09-17 08:00:00')) is False
+    assert driver.marker_matches(marker, dict(report, task_id=8)) is False
+    assert driver.marker_matches(None, report) is False
+    assert driver.marker_matches(marker, None) is False
+
+
+def test_restored_progress_shape(backend_pkg):
+    """/progress 在任务对象消失后要照旧回答"已完成"，计数与正常收尾时一致。"""
+    driver = submodule('driver')
+    data = driver.restored_progress(_finished_report())
+    assert data['status'] == 'completed'
+    assert data['progress'] == 100
+    assert data['stage'] == 'done'
+    assert data['restored'] is True
+    assert data['scope_label'] == '全部图书'
+    assert (data['done'], data['total']) == (3, 3)
+    assert data['check_index'] == data['check_total'] == 3
+    assert data['books_with_issues'] == 2
+    assert data['issues_total'] == 3
+    assert data['severity_counts'] == {'error': 2, 'warn': 1, 'info': 0}
+    assert data['errors_count'] == 1
+    assert data['cancelled'] is True
+
+
+# tool.py 依赖 webserver.*，离线导不进来（这也是它此前零覆盖的原因），所以下面这条链路
+# 只能按源码守：报告落盘后写下标记、/progress 在内存任务消失时回退读它、/report 的缺省
+# task_id 同样回退。缺任何一处，用户重建工具页时看到的就是一片空白。
+
+TOOL_SRC = os.path.join(BACKEND, 'tool.py')
+
+
+def _called_names(node):
+    """`node` 子树里所有被调用的函数名（`a.b(c)` 记作 `b`）。"""
+    names = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call):
+            func = child.func
+            if isinstance(func, ast.Attribute):
+                names.add(func.attr)
+            elif isinstance(func, ast.Name):
+                names.add(func.id)
+    return names
+
+
+def _tool_def(name, kind):
+    with open(TOOL_SRC, 'r', encoding='utf-8') as f:
+        tree = ast.parse(f.read())
+    for node in ast.walk(tree):
+        if isinstance(node, kind) and node.name == name:
+            return node
+    raise AssertionError('%s 里找不到 %s' % (TOOL_SRC, name))
+
+
+def test_run_writes_the_latest_pointer():
+    assert 'write_latest_marker' in _called_names(_tool_def('run', ast.FunctionDef))
+
+
+def test_progress_falls_back_to_the_report_on_disk():
+    names = _called_names(_tool_def('ProgressHandler', ast.ClassDef))
+    assert 'restored_progress' in names
+    # 任务已受理、后台线程还没开跑的窗口里 is_running() 为真，这时的旧报告不能冒充结果
+    assert 'is_running' in names
+
+
+def test_report_task_id_falls_back_after_a_restart():
+    names = _called_names(_tool_def('_report_task_id', ast.FunctionDef))
+    assert 'last_completed_task_id' in names

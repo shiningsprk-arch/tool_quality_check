@@ -148,6 +148,7 @@
   "run.started": "Started on {total} books",
   "run.progress": "Check {check}/{checks} ({name}) · book {done}/{total} {title}",
   "run.done": "Finished",
+  "run.restored": "previous scan",
   "run.cancelled": "Cancelled (stops at the end of the current check)",
   "run.cancelRequested": "Cancellation requested",
   "run.checkNow": "check {n}/{total}: {name}",

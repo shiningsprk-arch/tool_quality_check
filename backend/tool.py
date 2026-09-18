@@ -26,6 +26,11 @@ import；`qc/shim/` 用最小实现补上它需要的 calibre API；`adapter.py`
 报告不放进 `progress_data`：整库体检结果是 MB 级，而 `progress_data` 会进后台任务面板和
 每次 `/progress` 响应。因此只把计数放进度里，完整报告写进工作目录 `report.json`，由
 `/report` 分页读取。
+
+宿主只把后台任务放在内存里，`_last_task_id` 也只在进程内有效——安装/更新工具或重启
+MyBooks 之后，`/progress` 就认不出上次那次体检了，而报告文件其实还在磁盘上。所以每次跑完
+会在工具共享目录补写一个 `latest.json` 指针，`/progress`、`/report`、`/summary` 在内存里
+找不到任务时回退读它：重开工具页依然能打开上次的体检报告，不必重跑。
 """
 import json
 import logging
@@ -45,6 +50,8 @@ from . import driver
 from .qc import menus
 
 REPORT_FILENAME = 'report.json'
+# 指向"最近一次跑完的那份报告"，落在工具共享目录（无 key 那级），不随 task_id 变。
+LATEST_FILENAME = driver.LATEST_MARKER
 
 # 单次体检最多覆盖的书本数：整库体检是逐检查逐书跑，上限防止误点全库把服务拖住。
 MAX_BOOKS = 5000
@@ -143,6 +150,31 @@ class QualityCheckTool(BaseTool):
     def cover_root(self, task_id: int) -> str:
         """封面检查按 `<library_path>/<book path>/cover.jpg` 取图，这里给出落盘目录。"""
         return os.path.join(self.api.storage.get_work_dir(str(task_id)), 'covers')
+
+    # ------------------------------------------------------- 跨进程找回上次报告
+
+    def latest_marker_path(self) -> str:
+        return os.path.join(self.api.storage.get_work_dir(), LATEST_FILENAME)
+
+    def _last_completed(self):
+        """磁盘上的"最近一次跑完的体检"→ `(task_id, report)`；对不上就是 None。"""
+        marker = driver.read_latest_marker(self.latest_marker_path())
+        task_id = int((marker or {}).get('task_id') or 0)
+        if task_id <= 0:
+            return None
+        report, error = _read_report(task_id)
+        if error is not None or not driver.marker_matches(marker, report):
+            return None
+        return task_id, report
+
+    def last_completed_task_id(self) -> Optional[int]:
+        found = self._last_completed()
+        return found[0] if found else None
+
+    def restored_progress(self) -> Optional[dict]:
+        """任务对象已随进程消失时，用磁盘上那份报告回答 /progress。"""
+        found = self._last_completed()
+        return driver.restored_progress(found[1]) if found else None
 
     # ---------------------------------------------------------------- 启动体检
 
@@ -268,6 +300,8 @@ class QualityCheckTool(BaseTool):
 
             with open(self.report_path(task_id), 'w', encoding='utf-8') as f:
                 json.dump(report, f, ensure_ascii=False)
+            # 报告一落盘就把"最近一次"指针写上：进程重启后 /progress 靠它找回这次结果。
+            driver.write_latest_marker(self.latest_marker_path(), report)
 
             counts = report.get('severity_counts') or {}
             self.update_task_progress(task_id, 100, {
@@ -403,7 +437,13 @@ class ProgressHandler(BaseHandler):
     def get(self):
         task = QualityCheckTool.get_last_task()
         if not task:
-            return {'err': 'task.not_found', 'msg': _('尚未启动体检任务')}
+            # 进程重启过：宿主只把后台任务放内存里，这次体检的任务对象没了，但报告还在
+            # 磁盘上——用上次那份回答"已完成"，前端的恢复流程照旧。任务刚受理还没开跑的
+            # 那一小段窗口 is_running() 为真，这时不能拿旧报告冒充。
+            restored = None if QualityCheckTool.is_running() else QualityCheckTool().restored_progress()
+            if restored is None:
+                return {'err': 'task.not_found', 'msg': _('尚未启动体检任务')}
+            return {'err': 'ok', 'msg': _('体检已完成'), 'data': restored}
         data = task.get('progress_data') or {}
         result = {
             'status': task.get('status'),
@@ -432,11 +472,17 @@ class ProgressHandler(BaseHandler):
 
 
 def _report_task_id(argument: str) -> Optional[int]:
-    """把 `task_id` 参数（缺省时用最近一次任务）解析成 int，非法返回 None。"""
-    task_id = argument or str(QualityCheckTool._last_task_id or '')
-    if not task_id or not task_id.isdigit():
-        return None
-    return int(task_id)
+    """把 `task_id` 参数解析成 int（非法返回 None）；缺省 = 最近一次体检。
+
+    进程重启后内存里的任务没了，这里回退到磁盘上的"最近一次报告"，于是 `/report`、
+    `/summary` 和前端导出在重启后依然指向用户上次体检的那一份。
+    """
+    argument = (argument or '').strip()
+    if argument:
+        return int(argument) if argument.isdigit() else None
+    if QualityCheckTool._last_task_id is not None:
+        return QualityCheckTool._last_task_id
+    return QualityCheckTool().last_completed_task_id()
 
 
 def _read_report(task_id: int):

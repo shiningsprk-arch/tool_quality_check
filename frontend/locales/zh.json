@@ -148,6 +148,7 @@
   "run.started": "已启动，共 {total} 本",
   "run.progress": "检查项 {check}/{checks}（{name}）· 第 {done}/{total} 本 {title}",
   "run.done": "体检完成",
+  "run.restored": "上次体检结果",
   "run.cancelled": "已取消（当前检查项跑完即停）",
   "run.cancelRequested": "已请求取消",
   "run.checkNow": "检查项 {n}/{total}：{name}",

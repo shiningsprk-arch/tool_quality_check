@@ -10,6 +10,8 @@ dialog. The port keeps the checks exactly as they are and changes only the two e
 """
 
 import html
+import json
+import os
 import re
 from collections import OrderedDict, defaultdict
 
@@ -461,6 +463,91 @@ def summarize_report(report, sample=5):
         'checks_run': len(report.get('per_check') or {}),
         'checks_with_hits': len(rows),
         'checks': rows,
+    }
+
+
+# --- the last report, as seen from the next process -------------------------
+
+LATEST_MARKER = 'latest.json'
+
+
+def latest_marker(report):
+    """The pointer written next to the reports so the next process can find the last one.
+
+    MyBooks keeps background tasks in memory only, so "which task did I just run" dies
+    with the process (installing/updating the tool or restarting MyBooks is enough) even
+    though the report file itself stays on disk. The marker names that one report, and
+    carries its ``generated_at``: task ids restart from 1 in a new process and can point
+    at a directory an older run already wrote.
+    """
+    return {
+        'task_id': int(report.get('task_id') or 0),
+        'generated_at': report.get('generated_at') or '',
+    }
+
+
+def marker_matches(marker, report):
+    """True when ``report`` is the very report ``marker`` was written for (pure)."""
+    if not marker or not report:
+        return False
+    if int(marker.get('task_id') or 0) != int(report.get('task_id') or 0):
+        return False
+    return (marker.get('generated_at') or '') == (report.get('generated_at') or '')
+
+
+def read_latest_marker(path):
+    """Read the marker file, answering None for a missing, unreadable or torn one.
+
+    A marker that cannot be trusted reads as "no marker": the caller falls back to the
+    behaviour it had before there was one (an empty page), never to a wrong report.
+    """
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_latest_marker(path, report):
+    """Best-effort marker write: failing here must not fail the run (returns success).
+
+    The report is already on disk by the time this is called, so the user's results are
+    safe; all a failure costs is "the next visit reopens the last report by itself", and
+    a torn file reads back as no marker.
+    """
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(latest_marker(report), f, ensure_ascii=False)
+    except OSError:
+        return False
+    return True
+
+
+def restored_progress(report):
+    """Shape a report read back from disk like the ``progress_data`` /progress serves (pure).
+
+    Only used once the in-memory task is gone. ``status`` is the host's completed state
+    (``BackgroundTask.STATUS_COMPLETED``); the driver stays host-free, hence the literal.
+    ``restored`` tells the frontend this is the previous run's result, not one it just
+    watched finish.
+    """
+    check_total = len(report.get('checks') or [])
+    return {
+        'status': 'completed',
+        'progress': 100,
+        'stage': 'done',
+        'scope_label': report.get('scope_label', ''),
+        'check_index': check_total,
+        'check_total': check_total,
+        'done': report.get('total_books', 0),
+        'total': report.get('total_books', 0),
+        'issues_total': report.get('issues_total', 0),
+        'severity_counts': report.get('severity_counts') or {},
+        'errors_count': len(report.get('errors') or []),
+        'books_with_issues': report.get('books_with_issues', 0),
+        'cancelled': report.get('cancelled', False),
+        'restored': True,
     }
 
 
