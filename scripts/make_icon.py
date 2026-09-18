@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Draw icon.png (1024x1024). External toolbox tools only accept a PNG at the package root.
+"""Draw icon.png (256x256). External toolbox tools only accept a PNG at the package root.
+
+图形按 RENDER 画好再降采样到 SIZE：下面所有坐标都是按 1024 写的绝对值，直接把 SIZE 改成
+256 会把细节挤出画布；超采样后 LANCZOS 缩放既保形又有抗锯齿，也不必逐个换算坐标。
 
 Usage: python scripts/make_icon.py
 """
@@ -7,7 +10,10 @@ import os
 
 from PIL import Image, ImageDraw
 
-SIZE = 1024
+#: 出图尺寸。工具箱列表里只按小图标显示，256 就够（原先 1024 只是白占体积）。
+SIZE = 256
+#: 绘制用的超采样尺寸（下面所有坐标都以它为准）。
+RENDER = 1024
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'icon.png')
 
 
@@ -16,15 +22,15 @@ def lerp(a, b, t):
 
 
 def main():
-    image = Image.new('RGB', (SIZE, SIZE), (18, 32, 58))
+    image = Image.new('RGB', (RENDER, RENDER), (18, 32, 58))
     draw = ImageDraw.Draw(image)
 
     # Vertical gradient background.
     top = (28, 58, 110)
     bottom = (14, 26, 48)
-    for y in range(SIZE):
-        t = y / float(SIZE - 1)
-        draw.line([(0, y), (SIZE, y)], fill=(
+    for y in range(RENDER):
+        t = y / float(RENDER - 1)
+        draw.line([(0, y), (RENDER, y)], fill=(
             lerp(top[0], bottom[0], t),
             lerp(top[1], bottom[1], t),
             lerp(top[2], bottom[2], t)))
@@ -62,8 +68,12 @@ def main():
         draw.rounded_rectangle([bx + 60, y, bx + bw - 60, y + 22], radius=11,
                                fill=(198, 126, 32))
 
-    image.save(OUT, 'PNG', optimize=True)
-    print('wrote %s (%dx%d)' % (os.path.abspath(OUT), SIZE, SIZE))
+    out = image.resize((SIZE, SIZE), Image.LANCZOS) if SIZE != RENDER else image
+    # 量化成 256 色调色板：图形本身是平色 + 渐变，量化后没有可见色带，而体积只有 RGB 的
+    # 一半不到（13.7KB → 6.2KB）。图标要的就是小。
+    out = out.quantize(colors=256, method=Image.MEDIANCUT)
+    out.save(OUT, 'PNG', optimize=True)
+    print('wrote %s (%dx%d, drawn at %d)' % (os.path.abspath(OUT), SIZE, SIZE, RENDER))
 
 
 if __name__ == '__main__':
